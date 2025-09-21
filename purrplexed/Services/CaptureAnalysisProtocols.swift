@@ -69,6 +69,45 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 		case longTermSuggestions = "long_term_suggestions"
 		case warningSigns = "warning_signs"
 	}
+	
+	// Memberwise initializer for mocks and direct construction
+	init(immediateActions: String, longTermSuggestions: String, warningSigns: String) {
+		self.immediateActions = immediateActions
+		self.longTermSuggestions = longTermSuggestions
+		self.warningSigns = warningSigns
+	}
+	
+	init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		
+		// Handle immediate_actions - can be string or array
+		if let actionsArray = try? container.decode([String].self, forKey: .immediateActions) {
+			self.immediateActions = actionsArray.joined(separator: "; ")
+		} else {
+			self.immediateActions = try container.decode(String.self, forKey: .immediateActions)
+		}
+		
+		// Handle long_term_suggestions - can be string or array
+		if let suggestionsArray = try? container.decode([String].self, forKey: .longTermSuggestions) {
+			self.longTermSuggestions = suggestionsArray.joined(separator: "; ")
+		} else {
+			self.longTermSuggestions = try container.decode(String.self, forKey: .longTermSuggestions)
+		}
+		
+		// Handle warning_signs - can be string or array
+		if let warningsArray = try? container.decode([String].self, forKey: .warningSigns) {
+			self.warningSigns = warningsArray.joined(separator: "; ")
+		} else {
+			self.warningSigns = try container.decode(String.self, forKey: .warningSigns)
+		}
+	}
+	
+	func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(immediateActions, forKey: .immediateActions)
+		try container.encode(longTermSuggestions, forKey: .longTermSuggestions)
+		try container.encode(warningSigns, forKey: .warningSigns)
+	}
 }
 
 struct ParallelAnalysisResult: Sendable, Equatable {

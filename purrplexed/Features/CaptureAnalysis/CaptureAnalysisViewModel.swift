@@ -158,12 +158,12 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				return imageData
 			}
 			
-			// Optimize for Gemini Vision API: 1024px max dimension, ~500KB target
+			// Optimize for Gemini Vision API: balance speed vs environmental context preservation
 			let compressed = ImageUtils.jpegDataFitting(
 				image, 
-				maxDimension: 1024,  // Optimal for AI vision analysis
-				targetBytes: 500_000, // ~500KB for faster upload/processing
-				initialQuality: 0.85   // High quality but compressed
+				maxDimension: 1280,  // Preserve more detail for environmental context analysis
+				targetBytes: 800_000, // ~800KB balances speed with context retention
+				initialQuality: 0.82   // High quality but compressed for environmental details
 			)
 			
 			if let compressed = compressed {
