@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import UIKit
 
 @MainActor
 final class CaptureAnalysisViewModel: ObservableObject {
@@ -71,7 +72,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			Haptics.impact(.light)
 			do {
 				let photo = try await self.media.capturePhoto()
-				self.thumbnailData = photo.imageData
+				// Compress image for faster analysis while keeping original quality for thumbnail
+				self.thumbnailData = await self.compressImageForAnalysis(photo.imageData)
 				// No auto-analysis; wait for explicit Analyze CTA
 			} catch {
 				self.transition(.error(message: NSLocalizedString("error_capture_failed", comment: "")))
@@ -83,7 +85,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	func didPickPhoto(_ data: Data) {
 		Task { [weak self] in
 			guard let self else { return }
-			self.thumbnailData = data
+			// Compress picked photo for faster analysis
+			self.thumbnailData = await self.compressImageForAnalysis(data)
 			self.state = .idle
 		}
 	}
@@ -146,6 +149,34 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	}
 
 	// MARK: - Private
+	
+	/// Compress image data for faster analysis while maintaining quality
+	private func compressImageForAnalysis(_ imageData: Data) async -> Data {
+		return await Task.detached {
+			guard let image = UIImage(data: imageData) else {
+				Log.analysis.warning("Failed to create UIImage from data, using original")
+				return imageData
+			}
+			
+			// Optimize for Gemini Vision API: 1024px max dimension, ~500KB target
+			let compressed = ImageUtils.jpegDataFitting(
+				image, 
+				maxDimension: 1024,  // Optimal for AI vision analysis
+				targetBytes: 500_000, // ~500KB for faster upload/processing
+				initialQuality: 0.85   // High quality but compressed
+			)
+			
+			if let compressed = compressed {
+				let originalSizeMB = Double(imageData.count) / 1_000_000
+				let compressedSizeMB = Double(compressed.count) / 1_000_000
+				Log.analysis.info("Image compressed: \(String(format: "%.2f", originalSizeMB))MB → \(String(format: "%.2f", compressedSizeMB))MB")
+				return compressed
+			} else {
+				Log.analysis.warning("Image compression failed, using original")
+				return imageData
+			}
+		}.value
+	}
 
 	private func ensurePermissionFlow(photosOnly: Bool = false) async -> Bool {
 		if !photosOnly {
