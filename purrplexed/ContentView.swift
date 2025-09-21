@@ -2,23 +2,13 @@
 //  ContentView.swift
 //  purrplexed
 //
-//  Created by Francis Walsh on 9/20/25.
+//  Deprecated placeholder; app now uses AppRootView.
 //
 
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
+    var body: some View { Text("") }
 }
 
-#Preview {
-    ContentView()
-}
+#Preview { ContentView() }

@@ -2,7 +2,7 @@
 //  purrplexedApp.swift
 //  purrplexed
 //
-//  Created by Francis Walsh on 9/20/25.
+//  App entry hosting AppRootView with DI container.
 //
 
 import SwiftUI
@@ -11,7 +11,13 @@ import SwiftUI
 struct purrplexedApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            let env = Env.load()
+            let router = AppRouter()
+            let usage = UsageMeterService(limit: env.freeDailyLimit)
+            let image = MockImageProcessingService()
+            let container = ServiceContainer(env: env, router: router, usageMeter: usage, imageService: image)
+            AppRootView(services: container)
+                .inject(container)
         }
     }
 }
