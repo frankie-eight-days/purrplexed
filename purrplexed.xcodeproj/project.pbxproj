@@ -400,6 +400,8 @@
 				DEVELOPMENT_TEAM = W7W8XZDTBJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Purrplexed needs camera access to capture photos of your pet for emotion analysis";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Purrplexed needs photo library access to select images for analysis";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -428,6 +430,8 @@
 				DEVELOPMENT_TEAM = W7W8XZDTBJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Purrplexed needs camera access to capture photos of your pet for emotion analysis";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Purrplexed needs photo library access to select images for analysis";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

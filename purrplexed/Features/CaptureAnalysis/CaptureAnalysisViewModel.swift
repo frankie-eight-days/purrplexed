@@ -120,6 +120,14 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			_ = try? await self.share.generateShareCard(result: result, imageData: self.thumbnailData ?? Data(), aspect: .square_1_1)
 		}
 	}
+	
+	func checkCameraPermission() async -> PermissionStatus {
+		return await permissions.status(for: .camera)
+	}
+	
+	func requestCameraPermission() async -> PermissionStatus {
+		return await permissions.request(.camera)
+	}
 
 	func cancelWork() {
 		analysisTask?.cancel()

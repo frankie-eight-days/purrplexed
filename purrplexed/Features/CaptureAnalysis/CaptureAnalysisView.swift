@@ -14,6 +14,7 @@ struct CaptureAnalysisView: View {
 	@State private var showLibrary = false
 	@State private var showCamera = false
 	@State private var showNoCameraAlert = false
+	@State private var showPermissionDeniedAlert = false
 	
 	var body: some View {
 		VStack {
@@ -32,7 +33,22 @@ struct CaptureAnalysisView: View {
 			.confirmationDialog(Localized("add_photo"), isPresented: $showChoice, titleVisibility: .visible) {
 				Button(Localized("use_camera")) {
 					if UIImagePickerController.isSourceTypeAvailable(.camera) {
-						showCamera = true
+						Task {
+							let status = await viewModel.checkCameraPermission()
+							switch status {
+							case .granted:
+								showCamera = true
+							case .notDetermined:
+								let newStatus = await viewModel.requestCameraPermission()
+								if newStatus == .granted {
+									showCamera = true
+								} else if newStatus == .denied || newStatus == .restricted {
+									showPermissionDeniedAlert = true
+								}
+							case .denied, .restricted:
+								showPermissionDeniedAlert = true
+							}
+						}
 					} else {
 						showNoCameraAlert = true
 					}
@@ -45,6 +61,17 @@ struct CaptureAnalysisView: View {
 				Button(Localized("action_cancel"), role: .cancel) {}
 			} message: {
 				Text(Localized("camera_unavailable_message"))
+			}
+			.alert("Camera Permission Required", isPresented: $showPermissionDeniedAlert) {
+				Button("Open Settings") {
+					if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+						UIApplication.shared.open(settingsUrl)
+					}
+				}
+				Button("Use Photo Library") { showLibrary = true }
+				Button("Cancel", role: .cancel) {}
+			} message: {
+				Text("Purrplexed needs camera access to take photos. Please enable camera permissions in Settings → Privacy & Security → Camera → Purrplexed")
 			}
 
 			Button(action: { viewModel.didTapAnalyze() }) {
