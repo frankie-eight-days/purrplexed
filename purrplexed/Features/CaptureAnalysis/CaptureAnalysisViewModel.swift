@@ -41,6 +41,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var contextualEmotion: ContextualEmotion? = nil
 	@Published var ownerAdvice: OwnerAdvice? = nil
 	@Published var isUploadingPhoto: Bool = false
+	@Published var isAnalyzing: Bool = false
 	@Published var uploadedFileUri: String? = nil
 
 	private let media: MediaService
@@ -145,6 +146,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		contextualEmotion = nil
 		ownerAdvice = nil
 		isUploadingPhoto = false
+		isAnalyzing = false
 		uploadedFileUri = nil
 	}
 
@@ -196,6 +198,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	private func beginParallelAnalysis(photo: CapturedPhoto) async {
 		cancelWork()
 		resetParallelAnalysisResults()
+		isAnalyzing = true
 		Log.analysis.info("Starting parallel analysis")
 		transition(.processing(media: .photo))
 		analytics.track(event: "parallel_analysis_start", properties: ["media": "photo"])
@@ -207,6 +210,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				for await update in stream {
 					if Task.isCancelled { 
 						Log.analysis.info("Parallel analysis task cancelled")
+						self.isAnalyzing = false
 						break 
 					}
 					await MainActor.run {
@@ -216,6 +220,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			} catch {
 				await self.offlineQueue.enqueue(photo: photo, audio: nil)
 				await MainActor.run { 
+					self.isAnalyzing = false
 					self.transition(.error(message: NSLocalizedString("error_network_generic", comment: ""))) 
 				}
 				Haptics.error()
@@ -274,11 +279,13 @@ final class CaptureAnalysisViewModel: ObservableObject {
 					"""
 				let result = AnalysisResult(translatedText: combinedText, confidence: 0.9, funFact: nil)
 				transition(.ready(result: result))
+				isAnalyzing = false
 				analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
 			}
 			
 		case .failed(let message):
 			transition(.error(message: message))
+			isAnalyzing = false
 			Haptics.error()
 			analytics.track(event: "parallel_analysis_partial_failure", properties: ["message": message])
 			Log.analysis.error("Parallel analysis partial failure: \(message, privacy: .public)")

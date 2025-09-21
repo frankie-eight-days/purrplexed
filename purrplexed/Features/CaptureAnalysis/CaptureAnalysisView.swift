@@ -17,97 +17,106 @@ struct CaptureAnalysisView: View {
 	@State private var showPermissionDeniedAlert = false
 	
 	var body: some View {
-		VStack {
-			Button(action: { showChoice = true }) {
-				ZStack {
-					RoundedRectangle(cornerRadius: 16)
-						.fill(Color.gray.opacity(0.2))
-						.overlay(frameContent)
+		ScrollView {
+			VStack {
+				Button(action: { showChoice = true }) {
+					ZStack {
+						RoundedRectangle(cornerRadius: 16)
+							.fill(Color.gray.opacity(0.2))
+							.overlay(frameContent)
+					}
 				}
-			}
-			.buttonStyle(.plain)
-			.frame(maxWidth: .infinity)
-			.frame(height: 280)
-			.padding()
-			.accessibilityLabel(Localized("add_photo"))
-			.confirmationDialog(Localized("add_photo"), isPresented: $showChoice, titleVisibility: .visible) {
-				Button(Localized("use_camera")) {
-					if UIImagePickerController.isSourceTypeAvailable(.camera) {
-						Task {
-							let status = await viewModel.checkCameraPermission()
-							switch status {
-							case .granted:
-								showCamera = true
-							case .notDetermined:
-								let newStatus = await viewModel.requestCameraPermission()
-								if newStatus == .granted {
+				.buttonStyle(.plain)
+				.frame(maxWidth: .infinity)
+				.frame(height: 280)
+				.padding()
+				.accessibilityLabel(Localized("add_photo"))
+				.confirmationDialog(Localized("add_photo"), isPresented: $showChoice, titleVisibility: .visible) {
+					Button(Localized("use_camera")) {
+						if UIImagePickerController.isSourceTypeAvailable(.camera) {
+							Task {
+								let status = await viewModel.checkCameraPermission()
+								switch status {
+								case .granted:
 									showCamera = true
-								} else if newStatus == .denied || newStatus == .restricted {
+								case .notDetermined:
+									let newStatus = await viewModel.requestCameraPermission()
+									if newStatus == .granted {
+										showCamera = true
+									} else if newStatus == .denied || newStatus == .restricted {
+										showPermissionDeniedAlert = true
+									}
+								case .denied, .restricted:
 									showPermissionDeniedAlert = true
 								}
-							case .denied, .restricted:
-								showPermissionDeniedAlert = true
 							}
+						} else {
+							showNoCameraAlert = true
 						}
+					}
+					Button(Localized("from_photo_library")) { showLibrary = true }
+					Button(Localized("action_cancel"), role: .cancel) {}
+				}
+				.alert(Localized("camera_unavailable_title"), isPresented: $showNoCameraAlert) {
+					Button(Localized("from_photo_library")) { showLibrary = true }
+					Button(Localized("action_cancel"), role: .cancel) {}
+				} message: {
+					Text(Localized("camera_unavailable_message"))
+				}
+				.alert("Camera Permission Required", isPresented: $showPermissionDeniedAlert) {
+					Button("Open Settings") {
+						if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+							UIApplication.shared.open(settingsUrl)
+						}
+					}
+					Button("Use Photo Library") { showLibrary = true }
+					Button("Cancel", role: .cancel) {}
+				} message: {
+					Text("Purrplexed needs camera access to take photos. Please enable camera permissions in Settings → Privacy & Security → Camera → Purrplexed")
+				}
+
+				Button(action: { viewModel.didTapAnalyze() }) {
+					if viewModel.isAnalyzing {
+						ProgressView()
+							.progressViewStyle(CircularProgressViewStyle(tint: .white))
+							.frame(maxWidth: .infinity)
+							.padding(.vertical, 14)
 					} else {
-						showNoCameraAlert = true
+						Text(Localized("action_analyze"))
+							.font(DS.Typography.buttonFont())
+							.frame(maxWidth: .infinity)
+							.padding(.vertical, 14)
 					}
 				}
-				Button(Localized("from_photo_library")) { showLibrary = true }
-				Button(Localized("action_cancel"), role: .cancel) {}
+				.buttonStyle(.borderedProminent)
+				.padding(.horizontal)
+				.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing)
+
+				// Show parallel analysis results progressively
+				if viewModel.emotionSummary != nil || viewModel.state.isReady {
+					ParallelAnalysisResultsView(viewModel: viewModel)
+						.padding(.horizontal)
+						.transition(.opacity)
+				}
+
+				Spacer()
 			}
-			.alert(Localized("camera_unavailable_title"), isPresented: $showNoCameraAlert) {
-				Button(Localized("from_photo_library")) { showLibrary = true }
-				Button(Localized("action_cancel"), role: .cancel) {}
-			} message: {
-				Text(Localized("camera_unavailable_message"))
-			}
-			.alert("Camera Permission Required", isPresented: $showPermissionDeniedAlert) {
-				Button("Open Settings") {
-					if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
-						UIApplication.shared.open(settingsUrl)
+			.sheet(isPresented: $showLibrary) {
+				PhotoLibraryPicker { image in
+					if let image, let data = ImageUtils.jpegDataFitting(image) {
+						viewModel.didPickPhoto(data)
 					}
 				}
-				Button("Use Photo Library") { showLibrary = true }
-				Button("Cancel", role: .cancel) {}
-			} message: {
-				Text("Purrplexed needs camera access to take photos. Please enable camera permissions in Settings → Privacy & Security → Camera → Purrplexed")
 			}
-
-			Button(action: { viewModel.didTapAnalyze() }) {
-				Text(Localized("action_analyze"))
-					.font(DS.Typography.buttonFont())
-					.frame(maxWidth: .infinity)
-					.padding(.vertical, 14)
+			.sheet(isPresented: $showCamera) {
+				SystemCameraPicker { image in
+					if let image, let data = ImageUtils.jpegDataFitting(image) {
+						viewModel.didPickPhoto(data)
+					}
+				}
 			}
-			.buttonStyle(.borderedProminent)
-			.padding(.horizontal)
-			.disabled(viewModel.thumbnailData == nil)
-
-			// Show parallel analysis results progressively
-			if viewModel.emotionSummary != nil || viewModel.state.isReady {
-				ParallelAnalysisResultsView(viewModel: viewModel)
-					.padding(.horizontal)
-					.transition(.opacity)
-			}
-
-			Spacer()
 		}
 		.background(DS.Color.background)
-		.sheet(isPresented: $showLibrary) {
-			PhotoLibraryPicker { image in
-				if let image, let data = ImageUtils.jpegDataFitting(image) {
-					viewModel.didPickPhoto(data)
-				}
-			}
-		}
-		.sheet(isPresented: $showCamera) {
-			SystemCameraPicker { image in
-				if let image, let data = ImageUtils.jpegDataFitting(image) {
-					viewModel.didPickPhoto(data)
-				}
-			}
-		}
 	}
 	
 	private var frameContent: some View {
@@ -136,6 +145,7 @@ struct CaptureAnalysisView: View {
 struct ParallelAnalysisResultsView: View {
 	@ObservedObject var viewModel: CaptureAnalysisViewModel
 	@State private var expandedSections: Set<AnalysisSection> = []
+	@State private var showEmotionSummary = false
 	
 	enum AnalysisSection: String, CaseIterable {
 		case bodyLanguage = "Body Language"
@@ -146,7 +156,7 @@ struct ParallelAnalysisResultsView: View {
 	var body: some View {
 		VStack(spacing: DS.Spacing.m) {
 			// Emotion Summary - Always visible when available
-			if let emotionSummary = viewModel.emotionSummary {
+			if showEmotionSummary, let emotionSummary = viewModel.emotionSummary {
 				VStack(alignment: .leading, spacing: DS.Spacing.s) {
 					HStack {
 						Image(systemName: "heart.fill")
@@ -176,12 +186,13 @@ struct ParallelAnalysisResultsView: View {
 				}
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding()
-				.background(Color.blue.opacity(0.05))
+				.background(Color.blue.opacity(0.15))
 				.clipShape(RoundedRectangle(cornerRadius: 12))
+				.transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
 			}
 			
 			// Expandable Tray Cards for other analyses
-			ForEach(AnalysisSection.allCases, id: \.rawValue) { section in
+			ForEach(Array(AnalysisSection.allCases.enumerated()), id: \.element.rawValue) { index, section in
 				if shouldShowSection(section) {
 					AnalysisTrayCard(
 						section: section,
@@ -189,6 +200,7 @@ struct ParallelAnalysisResultsView: View {
 						onToggle: { toggleSection(section) },
 						content: contentForSection(section)
 					)
+					.transition(.asymmetric(insertion: .move(edge: index.isMultiple(of: 2) ? .trailing : .leading).combined(with: .opacity), removal: .opacity))
 				}
 			}
 			
@@ -200,9 +212,19 @@ struct ParallelAnalysisResultsView: View {
 				}
 				.frame(maxWidth: .infinity)
 				.padding()
-				.background(Color.gray.opacity(0.08))
+				.background(Color.gray.opacity(0.24))
 				.clipShape(RoundedRectangle(cornerRadius: 12))
 			}
+		}
+		.animation(.spring(response: 0.8), value: showEmotionSummary)
+		.animation(.spring(response: 0.8), value: viewModel.bodyLanguageAnalysis?.overallMood)
+		.animation(.spring(response: 0.8), value: viewModel.contextualEmotion?.emotionalMeaning)
+		.animation(.spring(response: 0.8), value: viewModel.ownerAdvice?.immediateActions)
+		.onAppear {
+			showEmotionSummary = viewModel.emotionSummary != nil
+		}
+		.onChange(of: viewModel.emotionSummary) {
+			showEmotionSummary = viewModel.emotionSummary != nil
 		}
 	}
 	
@@ -255,22 +277,21 @@ struct AnalysisTrayCard<Content: View>: View {
 	var body: some View {
 		VStack(spacing: 0) {
 			// Header
-			Button(action: onToggle) {
-				HStack {
-					Image(systemName: iconForSection(section))
-						.foregroundColor(colorForSection(section))
-					Text(section.rawValue)
-						.font(DS.Typography.bodyFont())
-						.fontWeight(.medium)
-						.foregroundColor(.primary)
-					Spacer()
-					Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-						.font(.caption)
-						.foregroundColor(.secondary)
-				}
-				.padding()
+			HStack {
+				Image(systemName: iconForSection(section))
+					.foregroundColor(colorForSection(section))
+				Text(section.rawValue)
+					.font(DS.Typography.bodyFont())
+					.fontWeight(.medium)
+					.foregroundColor(.primary)
+				Spacer()
+				Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+					.font(.caption)
+					.foregroundColor(.secondary)
 			}
-			.buttonStyle(.plain)
+			.padding()
+			.contentShape(Rectangle())
+			.onTapGesture(perform: onToggle)
 			
 			// Content
 			if isExpanded {
@@ -303,9 +324,9 @@ struct AnalysisTrayCard<Content: View>: View {
 	
 	private func backgroundColorForSection(_ section: ParallelAnalysisResultsView.AnalysisSection) -> Color {
 		switch section {
-		case .bodyLanguage: return Color.green.opacity(0.05)
-		case .contextualEmotion: return Color.orange.opacity(0.05)
-		case .ownerAdvice: return Color.purple.opacity(0.05)
+		case .bodyLanguage: return Color.green.opacity(0.15)
+		case .contextualEmotion: return Color.orange.opacity(0.15)
+		case .ownerAdvice: return Color.purple.opacity(0.15)
 		}
 	}
 }
