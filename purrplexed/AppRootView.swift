@@ -2,7 +2,7 @@
 //  AppRootView.swift
 //  Purrplexed
 //
-//  App root hosting TabView and centralized routing.
+//  App root hosting single-screen with centralized routing.
 //
 
 import SwiftUI
@@ -10,30 +10,33 @@ import SwiftUI
 struct AppRootView: View {
 	@Environment(\.services) private var services
 	@ObservedObject private var router: AppRouter
+	@StateObject private var captureVM: CaptureAnalysisViewModel
 
 	init(services: ServiceContainer) {
 		self._router = ObservedObject(initialValue: services.router)
+		self._captureVM = StateObject(wrappedValue: CaptureAnalysisViewModel(
+			media: services.mediaService,
+			analysis: services.analysisService,
+			share: services.shareService,
+			analytics: services.analyticsService,
+			permissions: services.permissionsService,
+			offlineQueue: services.offlineQueue
+		))
 	}
 
 	var body: some View {
-		TabView(selection: $router.selectedTab) {
-			CameraView(viewModel: CameraViewModel(services: services!))
-				.tabItem {
-					Label("Camera", systemImage: "camera")
+		NavigationStack {
+			CaptureAnalysisView(viewModel: captureVM)
+				.navigationTitle("Purrplexed")
+				.navigationBarTitleDisplayMode(.inline)
+				.toolbar {
+					ToolbarItem(placement: .topBarTrailing) {
+						Button(action: { router.present(.settings) }) {
+							Image(systemName: "gear")
+						}
+						.accessibilityLabel("Settings")
+					}
 				}
-				.tag(AppTab.camera)
-
-			AudioView(viewModel: AudioViewModel())
-				.tabItem {
-					Label("Audio", systemImage: "waveform")
-				}
-				.tag(AppTab.audio)
-
-			SettingsView(viewModel: SettingsViewModel(services: services!))
-				.tabItem {
-					Label("Settings", systemImage: "gear")
-				}
-				.tag(AppTab.settings)
 		}
 		.tint(DS.Color.accent)
 		.sheet(item: $router.route, onDismiss: { router.dismiss() }) { route in
@@ -45,7 +48,7 @@ struct AppRootView: View {
 			case .paywall:
 				PaywallView(onClose: { router.dismiss() })
 			case .settings:
-				EmptyView() // handled by tab selection
+				SettingsView(viewModel: SettingsViewModel(services: services!))
 			}
 		}
 	}

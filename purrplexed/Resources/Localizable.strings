@@ -1,0 +1,26 @@
+/*
+ Localizable.strings
+ Purrplexed
+*/
+"camera_preview_placeholder" = "Camera Preview";
+"a11y_shutter" = "Shutter";
+"a11y_upload" = "Upload photo";
+"action_upload" = "Upload";
+"chip_add_audio" = "Add audio";
+"processing_friendly_copy" = "Cooking up your purrfect analysis…";
+"confidence_format" = "Confidence: %.0f%%";
+"action_save" = "Save";
+"action_share" = "Share";
+"action_new" = "New";
+"action_retry" = "Retry";
+"action_report" = "Report issue";
+"error_capture_failed" = "Could not capture photo.";
+"error_network_generic" = "We hit a snag. Please try again.";
+"perm_inline_prompt" = "We need permissions to proceed.";
+"add_photo" = "Add photo";
+"use_camera" = "Use Camera";
+"from_photo_library" = "From Photo Library";
+"action_cancel" = "Cancel";
+"camera_unavailable_title" = "Camera Unavailable";
+"camera_unavailable_message" = "This device does not have a camera. Please choose from your library.";
+"action_analyze" = "Analyze";

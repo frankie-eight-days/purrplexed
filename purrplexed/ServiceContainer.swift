@@ -11,6 +11,7 @@ import SwiftUI
 /// Environment configuration loaded from Env.plist (no secrets)
 struct Env: Sendable {
 	let apiBaseURL: URL?
+	let analyzePath: String
 	let freeDailyLimit: Int
 	let featureSavePremium: Bool
 
@@ -19,13 +20,14 @@ struct Env: Sendable {
 		      let data = try? Data(contentsOf: url),
 		      let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
 		else {
-			return Env(apiBaseURL: nil, freeDailyLimit: 5, featureSavePremium: true)
+			return Env(apiBaseURL: nil, analyzePath: "/api/analyze-cat", freeDailyLimit: 5, featureSavePremium: true)
 		}
 		let apiString = plist["API_BASE_URL"] as? String
 		let apiURL = apiString.flatMap { URL(string: $0) }
 		let freeDailyLimit = plist["FREE_DAILY_LIMIT"] as? Int ?? 5
 		let featureSavePremium = plist["FEATURE_SAVE_PREMIUM"] as? Bool ?? true
-		return Env(apiBaseURL: apiURL, freeDailyLimit: freeDailyLimit, featureSavePremium: featureSavePremium)
+		let analyzePath = (plist["ANALYZE_PATH"] as? String) ?? "/api/analyze-cat"
+		return Env(apiBaseURL: apiURL, analyzePath: analyzePath, freeDailyLimit: freeDailyLimit, featureSavePremium: featureSavePremium)
 	}
 }
 
@@ -85,18 +87,42 @@ final class ServiceContainer: ObservableObject {
 	let usageMeter: UsageMeterServiceProtocol
 	let imageService: ImageProcessingService
 	let jobOrchestrator: JobOrchestrator
+	// New services
+	let mediaService: MediaService
+	let analysisService: AnalysisService
+	let shareService: ShareService
+	let analyticsService: AnalyticsService
+	let permissionsService: PermissionsService
+	let offlineQueue: OfflineQueueing
 
 	init(
 		env: Env = .load(),
 		router: AppRouter,
 		usageMeter: UsageMeterServiceProtocol,
-		imageService: ImageProcessingService
+		imageService: ImageProcessingService,
+		mediaService: MediaService = MockMediaService(),
+		analysisService: AnalysisService = MockAnalysisService(),
+		shareService: ShareService = MockShareService(),
+		analyticsService: AnalyticsService = MockAnalyticsService(),
+		permissionsService: PermissionsService = MockPermissionsService(),
+		offlineQueue: OfflineQueueing = InMemoryOfflineQueue()
 	) {
 		self.env = env
 		self.router = router
 		self.usageMeter = usageMeter
 		self.imageService = imageService
 		self.jobOrchestrator = JobOrchestrator(imageService: imageService, usageService: usageMeter)
+		self.mediaService = mediaService
+		// Prefer backend service when an API URL is present, otherwise use provided mock
+		if let backendURL = env.apiBaseURL ?? URL(string: "https://purrplexed-backend.vercel.app") {
+			self.analysisService = BackendAnalysisService(baseURL: backendURL, analyzePath: env.analyzePath, prompt: "Analyze this cat's body language. Summarize mood, cues, and likely needs in 2-3 sentences.")
+		} else {
+			self.analysisService = analysisService
+		}
+		self.shareService = shareService
+		self.analyticsService = analyticsService
+		self.permissionsService = permissionsService
+		self.offlineQueue = offlineQueue
 	}
 }
 

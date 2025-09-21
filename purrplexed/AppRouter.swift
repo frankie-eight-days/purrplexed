@@ -46,15 +46,9 @@ final class AppRouter: ObservableObject, Routing {
 	@Published var selectedTab: AppTab = .camera
 	@Published var route: Route? = nil
 
-	/// Single mutation to present a route. For `.settings`, this selects the tab.
+	/// Single mutation to present a route. `.settings` now presents as a modal.
 	func present(_ route: Route) {
-		switch route {
-		case .settings:
-			selectedTab = .settings
-			self.route = nil
-		default:
-			self.route = route
-		}
+		self.route = route
 	}
 
 	func dismiss() {
