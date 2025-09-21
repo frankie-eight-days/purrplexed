@@ -57,17 +57,11 @@ struct CaptureAnalysisView: View {
 			.padding(.horizontal)
 			.disabled(viewModel.thumbnailData == nil)
 
-			if case .ready(let result) = viewModel.state {
-				VStack(alignment: .leading, spacing: DS.Spacing.s) {
-					Text(result.translatedText)
-						.font(DS.Typography.bodyFont())
-				}
-				.frame(maxWidth: .infinity)
-				.padding()
-				.background(Color.gray.opacity(0.08))
-				.clipShape(RoundedRectangle(cornerRadius: 12))
-				.padding(.horizontal)
-				.transition(.opacity)
+			// Show parallel analysis results progressively
+			if viewModel.emotionSummary != nil || viewModel.state.isReady {
+				ParallelAnalysisResultsView(viewModel: viewModel)
+					.padding(.horizontal)
+					.transition(.opacity)
 			}
 
 			Spacer()
@@ -110,12 +104,290 @@ struct CaptureAnalysisView: View {
 	}
 }
 
+// MARK: - Parallel Analysis Results View
+
+struct ParallelAnalysisResultsView: View {
+	@ObservedObject var viewModel: CaptureAnalysisViewModel
+	@State private var expandedSections: Set<AnalysisSection> = []
+	
+	enum AnalysisSection: String, CaseIterable {
+		case bodyLanguage = "Body Language"
+		case contextualEmotion = "Contextual Analysis"
+		case ownerAdvice = "Owner Advice"
+	}
+	
+	var body: some View {
+		VStack(spacing: DS.Spacing.m) {
+			// Emotion Summary - Always visible when available
+			if let emotionSummary = viewModel.emotionSummary {
+				VStack(alignment: .leading, spacing: DS.Spacing.s) {
+					HStack {
+						Image(systemName: "heart.fill")
+							.foregroundColor(DS.Color.accent)
+						Text("Emotion Summary")
+							.font(DS.Typography.titleFont())
+							.fontWeight(.semibold)
+						Spacer()
+					}
+					
+					VStack(alignment: .leading, spacing: 8) {
+						HStack {
+							Text("Emotion:")
+								.fontWeight(.medium)
+							Text(emotionSummary.emotion)
+								.foregroundColor(DS.Color.accent)
+							Spacer()
+							Text("(\(emotionSummary.intensity))")
+								.font(.caption)
+								.foregroundColor(.secondary)
+						}
+						
+						Text(emotionSummary.description)
+							.font(DS.Typography.bodyFont())
+							.fixedSize(horizontal: false, vertical: true)
+					}
+				}
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding()
+				.background(Color.blue.opacity(0.05))
+				.clipShape(RoundedRectangle(cornerRadius: 12))
+			}
+			
+			// Expandable Tray Cards for other analyses
+			ForEach(AnalysisSection.allCases, id: \.rawValue) { section in
+				if shouldShowSection(section) {
+					AnalysisTrayCard(
+						section: section,
+						isExpanded: expandedSections.contains(section),
+						onToggle: { toggleSection(section) },
+						content: contentForSection(section)
+					)
+				}
+			}
+			
+			// Classic results fallback for backwards compatibility
+			if case .ready(let result) = viewModel.state, viewModel.emotionSummary == nil {
+				VStack(alignment: .leading, spacing: DS.Spacing.s) {
+					Text(result.translatedText)
+						.font(DS.Typography.bodyFont())
+				}
+				.frame(maxWidth: .infinity)
+				.padding()
+				.background(Color.gray.opacity(0.08))
+				.clipShape(RoundedRectangle(cornerRadius: 12))
+			}
+		}
+	}
+	
+	private func shouldShowSection(_ section: AnalysisSection) -> Bool {
+		switch section {
+		case .bodyLanguage:
+			return viewModel.bodyLanguageAnalysis != nil
+		case .contextualEmotion:
+			return viewModel.contextualEmotion != nil
+		case .ownerAdvice:
+			return viewModel.ownerAdvice != nil
+		}
+	}
+	
+	private func toggleSection(_ section: AnalysisSection) {
+		if expandedSections.contains(section) {
+			expandedSections.remove(section)
+		} else {
+			expandedSections.insert(section)
+		}
+	}
+	
+	@ViewBuilder
+	private func contentForSection(_ section: AnalysisSection) -> some View {
+		switch section {
+		case .bodyLanguage:
+			if let analysis = viewModel.bodyLanguageAnalysis {
+				BodyLanguageContentView(analysis: analysis)
+			}
+		case .contextualEmotion:
+			if let analysis = viewModel.contextualEmotion {
+				ContextualEmotionContentView(analysis: analysis)
+			}
+		case .ownerAdvice:
+			if let analysis = viewModel.ownerAdvice {
+				OwnerAdviceContentView(analysis: analysis)
+			}
+		}
+	}
+}
+
+// MARK: - Tray Card Component
+
+struct AnalysisTrayCard<Content: View>: View {
+	let section: ParallelAnalysisResultsView.AnalysisSection
+	let isExpanded: Bool
+	let onToggle: () -> Void
+	let content: Content
+	
+	var body: some View {
+		VStack(spacing: 0) {
+			// Header
+			Button(action: onToggle) {
+				HStack {
+					Image(systemName: iconForSection(section))
+						.foregroundColor(colorForSection(section))
+					Text(section.rawValue)
+						.font(DS.Typography.bodyFont())
+						.fontWeight(.medium)
+						.foregroundColor(.primary)
+					Spacer()
+					Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+						.font(.caption)
+						.foregroundColor(.secondary)
+				}
+				.padding()
+			}
+			.buttonStyle(.plain)
+			
+			// Content
+			if isExpanded {
+				content
+					.padding(.horizontal)
+					.padding(.bottom)
+					.transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+			}
+		}
+		.background(backgroundColorForSection(section))
+		.clipShape(RoundedRectangle(cornerRadius: 12))
+		.animation(.easeInOut(duration: 0.3), value: isExpanded)
+	}
+	
+	private func iconForSection(_ section: ParallelAnalysisResultsView.AnalysisSection) -> String {
+		switch section {
+		case .bodyLanguage: return "figure.walk"
+		case .contextualEmotion: return "scope"
+		case .ownerAdvice: return "lightbulb.fill"
+		}
+	}
+	
+	private func colorForSection(_ section: ParallelAnalysisResultsView.AnalysisSection) -> Color {
+		switch section {
+		case .bodyLanguage: return .green
+		case .contextualEmotion: return .orange
+		case .ownerAdvice: return .purple
+		}
+	}
+	
+	private func backgroundColorForSection(_ section: ParallelAnalysisResultsView.AnalysisSection) -> Color {
+		switch section {
+		case .bodyLanguage: return Color.green.opacity(0.05)
+		case .contextualEmotion: return Color.orange.opacity(0.05)
+		case .ownerAdvice: return Color.purple.opacity(0.05)
+		}
+	}
+}
+
+// MARK: - Content Views for Each Analysis Type
+
+struct BodyLanguageContentView: View {
+	let analysis: BodyLanguageAnalysis
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			AnalysisDetailRow(label: "Posture", value: analysis.posture)
+			AnalysisDetailRow(label: "Ears", value: analysis.ears)
+			AnalysisDetailRow(label: "Tail", value: analysis.tail)
+			AnalysisDetailRow(label: "Eyes", value: analysis.eyes)
+			
+			Divider()
+				.padding(.vertical, 4)
+			
+			VStack(alignment: .leading, spacing: 4) {
+				Text("Overall Mood")
+					.font(.caption)
+					.fontWeight(.medium)
+					.foregroundColor(.secondary)
+				Text(analysis.overallMood)
+					.font(DS.Typography.bodyFont())
+					.fontWeight(.medium)
+					.foregroundColor(.green)
+			}
+		}
+	}
+}
+
+struct ContextualEmotionContentView: View {
+	let analysis: ContextualEmotion
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			AnalysisDetailRow(label: "Context Clues", value: analysis.contextClues)
+			AnalysisDetailRow(label: "Environmental Factors", value: analysis.environmentalFactors)
+			
+			Divider()
+				.padding(.vertical, 4)
+			
+			VStack(alignment: .leading, spacing: 4) {
+				Text("Emotional Meaning")
+					.font(.caption)
+					.fontWeight(.medium)
+					.foregroundColor(.secondary)
+				Text(analysis.emotionalMeaning)
+					.font(DS.Typography.bodyFont())
+					.fontWeight(.medium)
+					.foregroundColor(.orange)
+			}
+		}
+	}
+}
+
+struct OwnerAdviceContentView: View {
+	let analysis: OwnerAdvice
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			AnalysisDetailRow(label: "Immediate Actions", value: analysis.immediateActions)
+			AnalysisDetailRow(label: "Long-term Suggestions", value: analysis.longTermSuggestions)
+			
+			if !analysis.warningSigns.isEmpty {
+				Divider()
+					.padding(.vertical, 4)
+				
+				VStack(alignment: .leading, spacing: 4) {
+					Text("Warning Signs")
+						.font(.caption)
+						.fontWeight(.medium)
+						.foregroundColor(.secondary)
+					Text(analysis.warningSigns)
+						.font(DS.Typography.bodyFont())
+						.fontWeight(.medium)
+						.foregroundColor(.red)
+				}
+			}
+		}
+	}
+}
+
+struct AnalysisDetailRow: View {
+	let label: String
+	let value: String
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 2) {
+			Text(label)
+				.font(.caption)
+				.fontWeight(.medium)
+				.foregroundColor(.secondary)
+			Text(value)
+				.font(DS.Typography.bodyFont())
+				.fixedSize(horizontal: false, vertical: true)
+		}
+	}
+}
+
 private func Localized(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 
 #Preview("CaptureAnalysis - Minimal") {
 	let vm = CaptureAnalysisViewModel(
 		media: MockMediaService(),
 		analysis: MockAnalysisService(),
+		parallelAnalysis: MockParallelAnalysisService(),
 		share: MockShareService(),
 		analytics: MockAnalyticsService(),
 		permissions: MockPermissionsService(),

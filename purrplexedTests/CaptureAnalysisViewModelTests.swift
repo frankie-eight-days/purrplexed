@@ -13,6 +13,7 @@ final class CaptureAnalysisViewModelTests: XCTestCase {
 		CaptureAnalysisViewModel(
 			media: MockMediaService(),
 			analysis: MockAnalysisService(),
+			parallelAnalysis: MockParallelAnalysisService(),
 			share: MockShareService(),
 			analytics: MockAnalyticsService(),
 			permissions: MockPermissionsService(),

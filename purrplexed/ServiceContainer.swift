@@ -90,6 +90,7 @@ final class ServiceContainer: ObservableObject {
 	// New services
 	let mediaService: MediaService
 	let analysisService: AnalysisService
+	let parallelAnalysisService: ParallelAnalysisService
 	let shareService: ShareService
 	let analyticsService: AnalyticsService
 	let permissionsService: PermissionsService
@@ -102,6 +103,7 @@ final class ServiceContainer: ObservableObject {
 		imageService: ImageProcessingService,
 		mediaService: MediaService = MockMediaService(),
 		analysisService: AnalysisService = MockAnalysisService(),
+		parallelAnalysisService: ParallelAnalysisService? = nil,
 		shareService: ShareService = MockShareService(),
 		analyticsService: AnalyticsService = MockAnalyticsService(),
 		permissionsService: PermissionsService = MockPermissionsService(),
@@ -116,8 +118,10 @@ final class ServiceContainer: ObservableObject {
 		// Prefer backend service when an API URL is present, otherwise use provided mock
 		if let backendURL = env.apiBaseURL ?? URL(string: "https://purrplexed-backend.vercel.app") {
 			self.analysisService = BackendAnalysisService(baseURL: backendURL, analyzePath: env.analyzePath, prompt: "Analyze this cat's body language. Summarize mood, cues, and likely needs in 2-3 sentences.")
+			self.parallelAnalysisService = HTTPParallelAnalysisService(baseURL: backendURL)
 		} else {
 			self.analysisService = analysisService
+			self.parallelAnalysisService = parallelAnalysisService ?? MockParallelAnalysisService()
 		}
 		self.shareService = shareService
 		self.analyticsService = analyticsService

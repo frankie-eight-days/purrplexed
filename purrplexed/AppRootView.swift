@@ -17,6 +17,7 @@ struct AppRootView: View {
 		self._captureVM = StateObject(wrappedValue: CaptureAnalysisViewModel(
 			media: services.mediaService,
 			analysis: services.analysisService,
+			parallelAnalysis: services.parallelAnalysisService,
 			share: services.shareService,
 			analytics: services.analyticsService,
 			permissions: services.permissionsService,
