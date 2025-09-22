@@ -7,6 +7,8 @@
 
 import Foundation
 @preconcurrency import AVFoundation
+import Photos
+import UIKit
 
 final class MockMediaService: MediaService, @unchecked Sendable {
 	let captureSession: AVCaptureSession? = nil // Placeholder; reuse if added later
@@ -216,4 +218,280 @@ actor InMemoryOfflineQueue: OfflineQueueing {
 	private var items: [(CapturedPhoto, CapturedAudio?)] = []
 	func enqueue(photo: CapturedPhoto, audio: CapturedAudio?) async { items.append((photo, audio)) }
 	func pendingCount() async -> Int { items.count }
+}
+
+// MARK: - Production Implementations
+
+/// Production PermissionsService using AVFoundation and Photos framework
+final class ProductionPermissionsService: PermissionsService {
+	func status(for type: PermissionType) async -> PermissionStatus {
+		switch type {
+		case .camera:
+			let status = AVCaptureDevice.authorizationStatus(for: .video)
+			return status.toPermissionStatus()
+		case .microphone:
+			let status = AVCaptureDevice.authorizationStatus(for: .audio)
+			return status.toPermissionStatus()
+		case .photos:
+			let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+			return status.toPermissionStatus()
+		}
+	}
+	
+	func request(_ type: PermissionType) async -> PermissionStatus {
+		switch type {
+		case .camera:
+			let granted = await AVCaptureDevice.requestAccess(for: .video)
+			return granted ? .granted : .denied
+		case .microphone:
+			let granted = await AVCaptureDevice.requestAccess(for: .audio)
+			return granted ? .granted : .denied
+		case .photos:
+			let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+			return status.toPermissionStatus()
+		}
+	}
+}
+
+private extension AVAuthorizationStatus {
+	func toPermissionStatus() -> PermissionStatus {
+		switch self {
+		case .notDetermined: return .notDetermined
+		case .restricted: return .restricted
+		case .denied: return .denied
+		case .authorized: return .granted
+		@unknown default: return .denied
+		}
+	}
+}
+
+private extension PHAuthorizationStatus {
+	func toPermissionStatus() -> PermissionStatus {
+		switch self {
+		case .notDetermined: return .notDetermined
+		case .restricted: return .restricted
+		case .denied: return .denied
+		case .authorized, .limited: return .granted
+		@unknown default: return .denied
+		}
+	}
+}
+
+/// Production MediaService using AVFoundation
+final class ProductionMediaService: NSObject, MediaService, @unchecked Sendable {
+	internal var captureSession: AVCaptureSession?
+	private var photoOutput: AVCapturePhotoOutput?
+	private var currentPhotoCapture: PhotoCaptureProcessor?
+	
+	func prepareSession() async throws {
+		guard captureSession == nil else { return } // Already prepared
+		
+		let session = AVCaptureSession()
+		session.beginConfiguration()
+		
+		// Configure for high quality photos
+		if session.canSetSessionPreset(.photo) {
+			session.sessionPreset = .photo
+		}
+		
+		// Add camera input
+		guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+			throw MediaError.cameraUnavailable
+		}
+		
+		let cameraInput = try AVCaptureDeviceInput(device: camera)
+		guard session.canAddInput(cameraInput) else {
+			throw MediaError.failedToAddInput
+		}
+		session.addInput(cameraInput)
+		
+		// Add photo output
+		let photoOutput = AVCapturePhotoOutput()
+		guard session.canAddOutput(photoOutput) else {
+			throw MediaError.failedToAddOutput
+		}
+		session.addOutput(photoOutput)
+		
+		session.commitConfiguration()
+		
+		self.captureSession = session
+		self.photoOutput = photoOutput
+		
+		// Start session
+		session.startRunning()
+	}
+	
+	func capturePhoto() async throws -> CapturedPhoto {
+		guard let photoOutput = photoOutput else {
+			throw MediaError.notPrepared
+		}
+		
+		let settings = AVCapturePhotoSettings()
+		settings.photoQualityPrioritization = .quality
+		
+		let processor = PhotoCaptureProcessor()
+		currentPhotoCapture = processor
+		
+		photoOutput.capturePhoto(with: settings, delegate: processor)
+		
+		return try await processor.photoData()
+	}
+}
+
+private class PhotoCaptureProcessor: NSObject, AVCapturePhotoCaptureDelegate {
+	private var continuation: CheckedContinuation<CapturedPhoto, Error>?
+	
+	func photoData() async throws -> CapturedPhoto {
+		return try await withCheckedThrowingContinuation { continuation in
+			self.continuation = continuation
+		}
+	}
+	
+	func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+		defer { continuation = nil }
+		
+		if let error = error {
+			continuation?.resume(throwing: error)
+			return
+		}
+		
+		guard let imageData = photo.fileDataRepresentation() else {
+			continuation?.resume(throwing: MediaError.failedToGenerateImageData)
+			return
+		}
+		
+		let capturedPhoto = CapturedPhoto(imageData: imageData)
+		continuation?.resume(returning: capturedPhoto)
+	}
+}
+
+enum MediaError: Error, LocalizedError {
+	case cameraUnavailable
+	case failedToAddInput
+	case failedToAddOutput
+	case notPrepared
+	case failedToGenerateImageData
+	
+	var errorDescription: String? {
+		switch self {
+		case .cameraUnavailable:
+			return "Camera is not available"
+		case .failedToAddInput:
+			return "Failed to add camera input"
+		case .failedToAddOutput:
+			return "Failed to add photo output"
+		case .notPrepared:
+			return "Camera session is not prepared"
+		case .failedToGenerateImageData:
+			return "Failed to generate image data from captured photo"
+		}
+	}
+}
+
+/// Production ShareService for generating share cards and saving to Photos
+final class ProductionShareService: ShareService {
+	func generateShareCard(result: AnalysisResult, imageData: Data, aspect: ShareAspect) async throws -> Data {
+		guard let image = UIImage(data: imageData) else {
+			throw ShareError.invalidImageData
+		}
+		
+		let cardSize = sizeFor(aspect: aspect)
+		let cardImage = try await generateShareCardImage(
+			image: image,
+			result: result,
+			size: cardSize
+		)
+		
+		guard let pngData = cardImage.pngData() else {
+			throw ShareError.failedToGenerateShareCard
+		}
+		
+		return pngData
+	}
+	
+	func saveToPhotos(data: Data) async throws {
+		try await PHPhotoLibrary.shared().performChanges {
+			if let image = UIImage(data: data) {
+				PHAssetCreationRequest.creationRequestForAsset(from: image)
+			}
+		}
+	}
+	
+	private func sizeFor(aspect: ShareAspect) -> CGSize {
+		switch aspect {
+		case .square_1_1:
+			return CGSize(width: 1080, height: 1080)
+		case .portrait_9_16:
+			return CGSize(width: 1080, height: 1920)
+		case .landscape_16_9:
+			return CGSize(width: 1920, height: 1080)
+		}
+	}
+	
+	private func generateShareCardImage(image: UIImage, result: AnalysisResult, size: CGSize) async throws -> UIImage {
+		let renderer = UIGraphicsImageRenderer(size: size)
+		
+		return renderer.image { context in
+			let rect = CGRect(origin: .zero, size: size)
+			
+			// Background
+			UIColor.systemBackground.setFill()
+			context.fill(rect)
+			
+			// Image
+			let imageRect = CGRect(
+				x: 40,
+				y: 40,
+				width: size.width - 80,
+				height: (size.height - 200) * 0.7
+			)
+			image.draw(in: imageRect)
+			
+			// Text
+			let textRect = CGRect(
+				x: 40,
+				y: imageRect.maxY + 20,
+				width: size.width - 80,
+				height: size.height - imageRect.maxY - 60
+			)
+			
+			let text = result.translatedText
+			let font = UIFont.systemFont(ofSize: 28, weight: .medium)
+			let attributes: [NSAttributedString.Key: Any] = [
+				.font: font,
+				.foregroundColor: UIColor.label
+			]
+			
+			text.draw(in: textRect, withAttributes: attributes)
+		}
+	}
+}
+
+enum ShareError: Error, LocalizedError {
+	case invalidImageData
+	case failedToGenerateShareCard
+	
+	var errorDescription: String? {
+		switch self {
+		case .invalidImageData:
+			return "Invalid image data provided"
+		case .failedToGenerateShareCard:
+			return "Failed to generate share card"
+		}
+	}
+}
+
+/// Production AnalyticsService (basic implementation - replace with your analytics provider)
+final class ProductionAnalyticsService: AnalyticsService {
+	func track(event: String, properties: [String: Sendable]) {
+		// Replace with your analytics provider (Firebase, Mixpanel, etc.)
+		print("📊 Analytics Event: \(event)")
+		for (key, value) in properties {
+			print("   \(key): \(value)")
+		}
+		
+		// Example integration points:
+		// Analytics.logEvent(event, parameters: properties)
+		// Mixpanel.shared.track(event: event, properties: properties)
+	}
 }

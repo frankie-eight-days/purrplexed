@@ -14,20 +14,22 @@ struct Env: Sendable {
 	let analyzePath: String
 	let freeDailyLimit: Int
 	let featureSavePremium: Bool
+	let appKey: String?
 
 	static func load() -> Env {
 		guard let url = Bundle.main.url(forResource: "Env", withExtension: "plist"),
 		      let data = try? Data(contentsOf: url),
 		      let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
 		else {
-			return Env(apiBaseURL: nil, analyzePath: "/api/analyze-cat", freeDailyLimit: 5, featureSavePremium: true)
+			return Env(apiBaseURL: nil, analyzePath: "/api/analyze-cat", freeDailyLimit: 5, featureSavePremium: true, appKey: nil)
 		}
 		let apiString = plist["API_BASE_URL"] as? String
 		let apiURL = apiString.flatMap { URL(string: $0) }
 		let freeDailyLimit = plist["FREE_DAILY_LIMIT"] as? Int ?? 5
 		let featureSavePremium = plist["FEATURE_SAVE_PREMIUM"] as? Bool ?? true
 		let analyzePath = (plist["ANALYZE_PATH"] as? String) ?? "/api/analyze-cat"
-		return Env(apiBaseURL: apiURL, analyzePath: analyzePath, freeDailyLimit: freeDailyLimit, featureSavePremium: featureSavePremium)
+		let appKey = plist["APP_KEY"] as? String
+		return Env(apiBaseURL: apiURL, analyzePath: analyzePath, freeDailyLimit: freeDailyLimit, featureSavePremium: featureSavePremium, appKey: appKey)
 	}
 }
 
@@ -115,12 +117,12 @@ final class ServiceContainer: ObservableObject {
 		usageMeter: UsageMeterServiceProtocol,
 		imageService: ImageProcessingService,
 		subscriptionService: SubscriptionServiceProtocol? = nil,
-		mediaService: MediaService = MockMediaService(),
+		mediaService: MediaService = ProductionMediaService(),
 		analysisService: AnalysisService = MockAnalysisService(),
 		parallelAnalysisService: ParallelAnalysisService? = nil,
-		shareService: ShareService = MockShareService(),
-		analyticsService: AnalyticsService = MockAnalyticsService(),
-		permissionsService: PermissionsService = MockPermissionsService(),
+		shareService: ShareService = ProductionShareService(),
+		analyticsService: AnalyticsService = ProductionAnalyticsService(),
+		permissionsService: PermissionsService = ProductionPermissionsService(),
 		offlineQueue: OfflineQueueing = InMemoryOfflineQueue(),
 		captionService: CaptionGenerationService? = nil
 	) {
@@ -128,13 +130,18 @@ final class ServiceContainer: ObservableObject {
 		self.router = router
 		self.usageMeter = usageMeter
 		self.imageService = imageService
-		self.subscriptionService = subscriptionService ?? MockSubscriptionService()
+		self.subscriptionService = subscriptionService ?? SubscriptionService()
 		self.jobOrchestrator = JobOrchestrator(imageService: imageService, usageService: usageMeter, subscriptionService: self.subscriptionService)
 		self.mediaService = mediaService
 		// Prefer backend service when an API URL is present, otherwise use provided mock
 		if let backendURL = env.apiBaseURL ?? URL(string: "https://purrplexed-backend.vercel.app") {
-			self.analysisService = BackendAnalysisService(baseURL: backendURL, analyzePath: env.analyzePath, prompt: "Analyze this cat's body language. Summarize mood, cues, and likely needs in 2-3 sentences.")
-			self.parallelAnalysisService = HTTPParallelAnalysisService(baseURL: backendURL)
+			self.analysisService = BackendAnalysisService(
+				baseURL: backendURL, 
+				analyzePath: env.analyzePath, 
+				prompt: "Analyze this cat's body language. Summarize mood, cues, and likely needs in 2-3 sentences.",
+				appKey: env.appKey
+			)
+			self.parallelAnalysisService = HTTPParallelAnalysisService(baseURL: backendURL, appKey: env.appKey)
 		} else {
 			self.analysisService = analysisService
 			self.parallelAnalysisService = parallelAnalysisService ?? MockParallelAnalysisService()
@@ -146,7 +153,7 @@ final class ServiceContainer: ObservableObject {
 		
 		// Caption service - prefer backend service when available, otherwise use local
 		if let backendURL = env.apiBaseURL ?? URL(string: "https://purrplexed-backend.vercel.app") {
-			self.captionService = captionService ?? HTTPCaptionGenerationService(baseURL: backendURL)
+			self.captionService = captionService ?? HTTPCaptionGenerationService(baseURL: backendURL, appKey: env.appKey)
 		} else {
 			self.captionService = captionService ?? LocalCaptionGenerationService()
 		}

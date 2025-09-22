@@ -46,8 +46,7 @@ final class SettingsViewModel: ObservableObject {
 	}
 	
 	func resetUsage() {
-		Task { [weak self] in
-			guard let self else { return }
+		Task {
 			// Delete keychain entries to reset usage
 			let keychain = KeychainHelper()
 			_ = keychain.delete(for: "usage_consumed")
@@ -65,7 +64,7 @@ final class SettingsViewModel: ObservableObject {
 			guard let self else { return }
 			let currentStatus = await self.services.subscriptionService.isPremium
 			
-			if let mockService = self.services.subscriptionService as? MockSubscriptionService {
+			if self.services.subscriptionService is MockSubscriptionService {
 				// Toggle mock premium status
 				UserDefaults.standard.set(!currentStatus, forKey: "mock_premium_status")
 				print("🔧 Premium status toggled to: \(!currentStatus)")

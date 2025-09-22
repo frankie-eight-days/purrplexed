@@ -33,8 +33,7 @@ actor UsageMeterService: UsageMeterServiceProtocol {
 
 	init(limit: Int) {
 		self.dailyLimit = max(0, limit)
-		print("🔐 UsageMeterService initialized with keychain storage")
-		print("🔐 Current state: consumed=\(consumed), reserved=\(reserved), lastReset=\(lastResetDate)")
+		print("🔐 UsageMeterService initialized with keychain storage, limit: \(limit)")
 	}
 
 	private func resetIfNeeded(now: Date = Date()) {

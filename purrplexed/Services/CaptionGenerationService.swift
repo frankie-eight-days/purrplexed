@@ -25,11 +25,13 @@ protocol CaptionGenerationService: AnyObject, Sendable {
 final class HTTPCaptionGenerationService: CaptionGenerationService {
 	private let baseURL: URL
 	private let captionPath: String
+	private let appKey: String?
 	private let urlSession: URLSession
 	
-	init(baseURL: URL, captionPath: String = "/api/caption", urlSession: URLSession = .shared) {
+	init(baseURL: URL, captionPath: String = "/api/caption", appKey: String? = nil, urlSession: URLSession = .shared) {
 		self.baseURL = baseURL
 		self.captionPath = captionPath
+		self.appKey = appKey
 		self.urlSession = urlSession
 	}
 	
@@ -46,6 +48,11 @@ final class HTTPCaptionGenerationService: CaptionGenerationService {
 		var request = URLRequest(url: url)
 		request.httpMethod = "POST"
 		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		
+		// Add API key authentication if available
+		if let appKey = appKey {
+			request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
+		}
 		
 		let payload: [String: Any?] = [
 			"style": style.rawValue,

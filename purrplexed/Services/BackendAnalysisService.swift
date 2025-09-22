@@ -14,12 +14,14 @@ final class BackendAnalysisService: AnalysisService {
 	private let baseURL: URL
 	private let analyzePath: String
 	private let prompt: String
+	private let appKey: String?
 	private let urlSession: URLSession
 	
-	init(baseURL: URL, analyzePath: String = "/analyze", prompt: String, urlSession: URLSession = .shared) {
+	init(baseURL: URL, analyzePath: String = "/analyze", prompt: String, appKey: String? = nil, urlSession: URLSession = .shared) {
 		self.baseURL = baseURL
 		self.analyzePath = analyzePath
 		self.prompt = prompt
+		self.appKey = appKey
 		self.urlSession = urlSession
 	}
 	
@@ -33,6 +35,11 @@ final class BackendAnalysisService: AnalysisService {
 					var request = URLRequest(url: url)
 					request.httpMethod = "POST"
 					request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+					
+					// Add API key authentication if available
+					if let appKey = appKey {
+						request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
+					}
 
 					// Backend expects JSON with base64 data URL string + optional context text
 					let base64 = photo.imageData.base64EncodedString()

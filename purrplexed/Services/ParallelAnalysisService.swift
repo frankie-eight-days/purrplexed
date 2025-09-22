@@ -66,12 +66,14 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 	private let baseURL: URL
 	private let uploadPath: String
 	private let analyzePath: String
+	private let appKey: String?
 	private let urlSession: URLSession
 	
-	init(baseURL: URL, uploadPath: String = "/api/upload", analyzePath: String = "/api/analyze", urlSession: URLSession = .shared) {
+	init(baseURL: URL, uploadPath: String = "/api/upload", analyzePath: String = "/api/analyze", appKey: String? = nil, urlSession: URLSession = .shared) {
 		self.baseURL = baseURL
 		self.uploadPath = uploadPath
 		self.analyzePath = analyzePath
+		self.appKey = appKey
 		self.urlSession = urlSession
 	}
 	
@@ -84,6 +86,11 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		
 		var request = URLRequest(url: url)
 		request.httpMethod = "POST"
+		
+		// Add API key authentication if available
+		if let appKey = appKey {
+			request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
+		}
 		
 		// Create multipart form data
 		let boundary = "Boundary-\(UUID().uuidString)"
@@ -259,6 +266,11 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		var request = URLRequest(url: url)
 		request.httpMethod = "POST"
 		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		
+		// Add API key authentication if available
+		if let appKey = appKey {
+			request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
+		}
 		
 		let payload: [String: Any] = [
 			"fileUri": fileUri,
