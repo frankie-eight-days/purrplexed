@@ -50,7 +50,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	// Cat detection state
 	@Published var catDetectionResult: CatDetectionResult? = nil
 	@Published var isDetectingCat: Bool = false
-	@Published var optimalFrameHeight: CGFloat = 280 // Default frame height
+	// Fixed frame height - 20% larger than original (280 * 1.2 = 336)
+	let frameHeight: CGFloat = 336
 	
 	// Usage tracking
 	@Published private(set) var usedCount: Int = 0
@@ -238,7 +239,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		// Only reset cat detection when explicitly canceling work
 		catDetectionResult = nil
 		isDetectingCat = false
-		optimalFrameHeight = 280
+		// Frame height is now fixed, no need to reset
 	}
 	
 	private func resetParallelAnalysisResults() {
@@ -254,7 +255,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		// Preserve cat detection results and frame sizing during analysis
 		// catDetectionResult = nil
 		// isDetectingCat = false
-		// optimalFrameHeight = 280
+		// Frame height is now fixed, no need to reset
 	}
 
 	// MARK: - Private
@@ -567,59 +568,20 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				Haptics.impact(.light)
 			} else {
 				Log.analysis.info("No cat detected in image")
-				optimalFrameHeight = 280 // Reset to default
+				// Frame height stays fixed regardless
 			}
 		} catch {
 			Log.analysis.error("Cat detection failed: \(error.localizedDescription, privacy: .public)")
-			optimalFrameHeight = 280 // Reset to default on error
+			// Frame height stays fixed regardless
 		}
 		
 		isDetectingCat = false
 	}
 	
+	// Frame height is now fixed, this method is deprecated but kept for compatibility
 	private func calculateOptimalFrameHeight(for catResult: CatDetectionResult) {
-		guard let imageData = thumbnailData, UIImage(data: imageData) != nil else {
-			optimalFrameHeight = 280
-			return
-		}
-		
-		// Get screen width (assuming full width usage with padding)
-		let screenWidth = UIScreen.main.bounds.width
-		let availableWidth = screenWidth - 32 // Account for padding
-		
-		// Add padding around cat (30% padding)
-		let paddingRatio: CGFloat = 0.3
-		let paddingX = catResult.boundingBox.width * paddingRatio
-		let paddingY = catResult.boundingBox.height * paddingRatio
-		
-		let expandedCatBox = catResult.boundingBox.insetBy(dx: -paddingX, dy: -paddingY)
-		
-		// Ensure cat box stays within image bounds
-		let constrainedCatBox = expandedCatBox.intersection(
-			CGRect(origin: .zero, size: catResult.imageSize)
-		)
-		
-		// Calculate what height we need to show this cat box properly
-		let catAspectRatio = constrainedCatBox.width / constrainedCatBox.height
-		
-		var targetHeight: CGFloat
-		
-		if catAspectRatio > (availableWidth / 280) {
-			// Cat box is wider relative to container - fit to width
-			targetHeight = availableWidth / catAspectRatio
-		} else {
-			// Cat box is taller relative to container - use calculated height
-			let catWidthInFrame = constrainedCatBox.width * (availableWidth / catResult.imageSize.width)
-			targetHeight = catWidthInFrame / catAspectRatio
-		}
-		
-		// Constrain height to reasonable bounds
-		let minHeight: CGFloat = 200
-		let maxHeight: CGFloat = min(500, UIScreen.main.bounds.height * 0.6)
-		
-		optimalFrameHeight = max(minHeight, min(maxHeight, targetHeight))
-		
-		Log.analysis.info("Calculated optimal frame height: \(self.optimalFrameHeight) for cat box: \(NSCoder.string(for: constrainedCatBox))")
+		// No longer needed - frame height is fixed at 336
+		Log.analysis.info("Cat detected, frame height remains fixed at \(self.frameHeight)")
 	}
 	
 	private func detectCat(in imageData: Data) async throws -> CatDetectionResult? {

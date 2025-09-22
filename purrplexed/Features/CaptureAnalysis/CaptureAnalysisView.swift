@@ -62,10 +62,10 @@ struct CaptureAnalysisView: View {
 		}
 		.buttonStyle(.plain)
 		.frame(maxWidth: .infinity)
-		.frame(height: viewModel.optimalFrameHeight)
+		.frame(height: viewModel.frameHeight)
 		.padding()
 		.accessibilityLabel(Localized("add_photo"))
-		.animation(.spring(response: 0.8, dampingFraction: 0.8), value: viewModel.optimalFrameHeight)
+		// No animation needed since frame height is fixed
 		.confirmationDialog(Localized("add_photo"), isPresented: $showChoice, titleVisibility: .visible) {
 			Button(Localized("use_camera")) {
 				handleCameraAction()
@@ -588,121 +588,131 @@ struct AnimatedImageView: View {
 	let catDetectionResult: CatDetectionResult?
 	let containerSize: CGSize
 	
-	@State private var imageOffset: CGSize = .zero
-	@State private var imageScale: CGFloat = 1.0
+	@State private var currentTransform: ImageTransform = ImageTransform()
 	
 	var body: some View {
-		Image(uiImage: displayImage)
+		Image(uiImage: image)
 			.resizable()
-			.scaledToFill()
-			.scaleEffect(imageScale)
-			.offset(imageOffset)
+			.scaledToFill()  // Always fill the container
+			.scaleEffect(currentTransform.scale)
+			.offset(currentTransform.offset)
 			.frame(width: containerSize.width, height: containerSize.height)
 			.clipped()
 			.onAppear {
-				updateImageTransform(animated: false)
+				updateTransform(animated: false)
 			}
 			.onChange(of: catDetectionResult) {
-				updateImageTransform(animated: true)
+				updateTransform(animated: true)
 			}
 	}
 	
-	private var displayImage: UIImage {
-		// For smooth scaling, we use the original image and transform the view
-		// rather than cropping the actual image
-		return image
-	}
-	
-	private func updateImageTransform(animated: Bool) {
-		guard let catResult = catDetectionResult else {
-			// No cat detected - return to original view
-			let animation: Animation? = animated ? .spring() : nil
-			withAnimation(animation) {
-				imageOffset = .zero
-				imageScale = 1.0
+	private func updateTransform(animated: Bool) {
+		let newTransform = calculateImageTransform()
+		
+		if animated {
+			withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+				currentTransform = newTransform
 			}
-			return
-		}
-		
-		// Cat detected - automatically focus on it
-		let transform = calculateCatFocusTransform(
-			catBoundingBox: catResult.boundingBox,
-			imageSize: catResult.imageSize,
-			containerSize: containerSize
-		)
-		
-		let animation: Animation? = animated ? .spring() : nil
-		withAnimation(animation) {
-			imageOffset = transform.offset
-			imageScale = transform.scale
-		}
-	}
-	
-	private func calculateCatFocusTransform(
-		catBoundingBox: CGRect,
-		imageSize: CGSize,
-		containerSize: CGSize
-	) -> (offset: CGSize, scale: CGFloat) {
-		// Calculate the scale factor to fit the image in the container
-		let containerAspectRatio = containerSize.width / containerSize.height
-		let imageAspectRatio = imageSize.width / imageSize.height
-		
-		let baseScale: CGFloat
-		if imageAspectRatio > containerAspectRatio {
-			// Image is wider, fit to height
-			baseScale = containerSize.height / imageSize.height
 		} else {
-			// Image is taller, fit to width
-			baseScale = containerSize.width / imageSize.width
+			currentTransform = newTransform
+		}
+	}
+	
+	private func calculateImageTransform() -> ImageTransform {
+		// When no cat is detected, scaledToFill already handles filling the container
+		// So we just need scale = 1.0 and offset = .zero
+		guard let catResult = catDetectionResult else {
+			return ImageTransform(scale: 1.0, offset: .zero)
 		}
 		
-		// Add padding around the cat (20% of cat size)
-		let paddingRatio: CGFloat = 0.3
-		let paddingX = catBoundingBox.width * paddingRatio
-		let paddingY = catBoundingBox.height * paddingRatio
+		// Use the image's point size (not pixel size)
+		let imageSize = image.size
 		
-		let expandedCatBox = catBoundingBox.insetBy(dx: -paddingX, dy: -paddingY)
+		// Cat detected - calculate zoom to focus on cat with padding
+		let paddingRatio: CGFloat = 0.3 // 30% padding as requested
 		
-		// Calculate the scale needed to make the cat area fit nicely in the container
-		let catScaleX = containerSize.width / (expandedCatBox.width * baseScale)
-		let catScaleY = containerSize.height / (expandedCatBox.height * baseScale)
-		let catFocusScale = min(catScaleX, catScaleY, 2.5) // Cap at 2.5x zoom
+		// Calculate how scaledToFill is already scaling the image
+		let scaleX = containerSize.width / imageSize.width
+		let scaleY = containerSize.height / imageSize.height
+		let fillScale = max(scaleX, scaleY) // This is what scaledToFill does
 		
-		// Total scale combining base scaling and cat focus scaling
-		let totalScale = baseScale * catFocusScale
-		
-		// Calculate center of the cat in image coordinates
-		let catCenterX = catBoundingBox.midX
-		let catCenterY = catBoundingBox.midY
-		
-		// Convert to view coordinates
-		let scaledImageWidth = imageSize.width * totalScale
-		let scaledImageHeight = imageSize.height * totalScale
-		
-		// Calculate where the cat center would be in the scaled image
-		let catCenterInScaledImage = CGPoint(
-			x: catCenterX * totalScale,
-			y: catCenterY * totalScale
+		// Convert bounding box from pixel coordinates to point coordinates
+		// The catResult.imageSize is in pixels, but we need points for UI
+		let pixelToPointScale = image.scale
+		let catBoxInPoints = CGRect(
+			x: catResult.boundingBox.minX / pixelToPointScale,
+			y: catResult.boundingBox.minY / pixelToPointScale,
+			width: catResult.boundingBox.width / pixelToPointScale,
+			height: catResult.boundingBox.height / pixelToPointScale
 		)
 		
-		// Current center of the scaled image (before offset)
-		let currentImageCenterX = scaledImageWidth / 2
-		let currentImageCenterY = scaledImageHeight / 2
+		// Expand the bounding box by padding
+		let paddingX = catBoxInPoints.width * paddingRatio
+		let paddingY = catBoxInPoints.height * paddingRatio
+		var targetBox = catBoxInPoints.insetBy(dx: -paddingX, dy: -paddingY)
 		
-		// Calculate the offset from image center to cat center
-		let catOffsetFromImageCenter = CGSize(
-			width: catCenterInScaledImage.x - currentImageCenterX,
-			height: catCenterInScaledImage.y - currentImageCenterY
+		// Ensure the target box stays within image bounds (in points)
+		targetBox = targetBox.intersection(CGRect(origin: .zero, size: imageSize))
+		
+		// Calculate how much of the container the cat box takes up after fillScale
+		let catWidthInContainer = targetBox.width * fillScale
+		let catHeightInContainer = targetBox.height * fillScale
+		
+		// Calculate additional zoom needed to make the cat fill the container
+		let additionalScaleX = containerSize.width / catWidthInContainer
+		let additionalScaleY = containerSize.height / catHeightInContainer
+		let additionalScale = min(additionalScaleX, additionalScaleY)
+		
+		// Cap the zoom at a reasonable level
+		let maxZoom: CGFloat = 2.5
+		let clampedScale = min(additionalScale, maxZoom)
+		
+		// Calculate offset to center the cat in the frame
+		// Since scaledToFill already centers the image, we need to calculate the offset
+		// from the centered position
+		
+		// First, figure out where the image is positioned after scaledToFill
+		let scaledImageWidth = imageSize.width * fillScale
+		let scaledImageHeight = imageSize.height * fillScale
+		
+		// After additional scaling
+		let finalImageWidth = scaledImageWidth * clampedScale
+		let finalImageHeight = scaledImageHeight * clampedScale
+		
+		// Cat center in the final scaled image
+		let catCenterInImage = CGPoint(
+			x: targetBox.midX * fillScale * clampedScale,
+			y: targetBox.midY * fillScale * clampedScale
 		)
 		
-		// The offset we need is negative of the cat's offset from image center
-		let finalOffset = CGSize(
-			width: -catOffsetFromImageCenter.width,
-			height: -catOffsetFromImageCenter.height
+		// The image is centered by scaledToFill, so its center is at container center
+		// We need to offset from there to bring the cat to the center
+		let imageCenter = CGPoint(
+			x: finalImageWidth / 2,
+			y: finalImageHeight / 2
 		)
 		
-		return (offset: finalOffset, scale: catFocusScale)
+		// Offset needed to center the cat
+		var offset = CGSize(
+			width: imageCenter.x - catCenterInImage.x,
+			height: imageCenter.y - catCenterInImage.y
+		)
+		
+		// Constrain offset to prevent showing blank areas
+		let maxOffsetX = abs(finalImageWidth - containerSize.width) / 2
+		let maxOffsetY = abs(finalImageHeight - containerSize.height) / 2
+		
+		offset.width = max(-maxOffsetX, min(maxOffsetX, offset.width))
+		offset.height = max(-maxOffsetY, min(maxOffsetY, offset.height))
+		
+		return ImageTransform(scale: clampedScale, offset: offset)
 	}
+}
+
+// Helper struct to encapsulate transform state
+struct ImageTransform: Equatable {
+	var scale: CGFloat = 1.0
+	var offset: CGSize = .zero
 }
 
 private func Localized(_ key: String) -> String { NSLocalizedString(key, comment: "") }
