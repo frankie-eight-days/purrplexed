@@ -21,6 +21,7 @@ enum Route: Equatable, Identifiable {
 	case result(jobId: String)
 	case paywall
 	case settings
+	case onboarding
 
 	var id: String {
 		switch self {
@@ -28,6 +29,7 @@ enum Route: Equatable, Identifiable {
 		case .result(let jobId): return "result_\(jobId)"
 		case .paywall: return "paywall"
 		case .settings: return "settings"
+		case .onboarding: return "onboarding"
 		}
 	}
 }

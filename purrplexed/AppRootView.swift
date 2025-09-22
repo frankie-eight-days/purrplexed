@@ -50,6 +50,16 @@ struct AppRootView: View {
 				PaywallView(onClose: { router.dismiss() })
 			case .settings:
 				SettingsView(viewModel: SettingsViewModel(services: services!))
+			case .onboarding:
+				OnboardingView(services: services!) {
+					router.dismiss()
+				}
+			}
+		}
+		.onAppear {
+			// Check if user needs onboarding on first app launch
+			if !UserDefaults.hasCompletedOnboarding {
+				router.present(.onboarding)
 			}
 		}
 	}
