@@ -284,27 +284,32 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			emotionSummary = result
 			progress = max(progress, 0.4)
 			Log.analysis.info("Emotion summary completed")
+			stopSpinnerOnFirstResponse()
 			
 		case .bodyLanguageCompleted(let result):
 			bodyLanguageAnalysis = result
 			progress = max(progress, 0.6)
 			Log.analysis.info("Body language analysis completed")
+			stopSpinnerOnFirstResponse()
 			
 		case .contextualEmotionCompleted(let result):
 			contextualEmotion = result
 			progress = max(progress, 0.8)
 			Log.analysis.info("Contextual emotion analysis completed")
+			stopSpinnerOnFirstResponse()
 			
 		case .ownerAdviceCompleted(let result):
 			ownerAdvice = result
 			progress = max(progress, 0.8)
 			Log.analysis.info("Owner advice completed")
+			stopSpinnerOnFirstResponse()
 			checkAnalysisCompletion()
 			
 		case .catJokesCompleted(let result):
 			catJokes = result
 			progress = 1.0
 			Log.analysis.info("Cat jokes completed")
+			// Don't stop spinner here - this is bonus content after main analysis
 			checkAnalysisCompletion()
 			
 		case .failed(let message):
@@ -313,6 +318,13 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			Haptics.error()
 			analytics.track(event: "parallel_analysis_partial_failure", properties: ["message": message])
 			Log.analysis.error("Parallel analysis partial failure: \(message, privacy: .public)")
+		}
+	}
+	
+	private func stopSpinnerOnFirstResponse() {
+		if isAnalyzing {
+			Log.analysis.info("First analysis response received - stopping spinner")
+			isAnalyzing = false
 		}
 	}
 	
@@ -342,7 +354,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				"""
 			let result = AnalysisResult(translatedText: combinedText, confidence: 0.9, funFact: nil)
 			transition(.ready(result: result))
-			isAnalyzing = false
+			// Note: isAnalyzing is already set to false by stopSpinnerOnFirstResponse()
 			analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
 		}
 	}
