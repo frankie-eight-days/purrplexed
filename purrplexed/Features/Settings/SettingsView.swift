@@ -20,15 +20,68 @@ struct SettingsView: View {
 						Text(viewModel.appVersion)
 							.foregroundStyle(.secondary)
 					}
+					.contentShape(Rectangle())
+					.onTapGesture {
+						viewModel.handleVersionTap()
+					}
 				}
 			}
 			.navigationTitle("Settings")
+			.sheet(isPresented: $viewModel.showDebugMenu) {
+				DebugMenuView(viewModel: viewModel)
+			}
+		}
+	}
+}
+
+struct DebugMenuView: View {
+	@ObservedObject var viewModel: SettingsViewModel
+	@Environment(\.presentationMode) var presentationMode
+	
+	var body: some View {
+		NavigationView {
+			List {
+				Section("Debug Tools") {
+					Button("🔄 Reset Usage Counter") {
+						viewModel.resetUsage()
+						presentationMode.wrappedValue.dismiss()
+					}
+					.foregroundStyle(.blue)
+					
+					Button("👑 Toggle Premium Status") {
+						viewModel.togglePremiumStatus()
+						presentationMode.wrappedValue.dismiss()
+					}
+					.foregroundStyle(.purple)
+				}
+				
+				Section("Info") {
+					Text("Tap version number 4x rapidly to access this menu")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+			}
+			.navigationTitle("Debug Menu")
+			.navigationBarTitleDisplayMode(.inline)
+			.toolbar {
+				ToolbarItem(placement: .navigationBarTrailing) {
+					Button("Done") {
+						presentationMode.wrappedValue.dismiss()
+					}
+				}
+			}
 		}
 	}
 }
 
 #Preview {
 	let env = Env.load()
-	let container = ServiceContainer(env: env, router: AppRouter(), usageMeter: UsageMeterService(limit: env.freeDailyLimit), imageService: MockImageProcessingService())
+	let container = ServiceContainer(
+		env: env, 
+		router: AppRouter(), 
+		usageMeter: UsageMeterService(limit: env.freeDailyLimit), 
+		imageService: MockImageProcessingService(),
+		subscriptionService: MockSubscriptionService()
+	)
 	return SettingsView(viewModel: SettingsViewModel(services: container))
 }

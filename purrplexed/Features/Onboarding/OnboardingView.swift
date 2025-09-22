@@ -2,11 +2,10 @@
 //  OnboardingView.swift
 //  Purrplexed
 //
-//  Onboarding flow with splash, auth, and how-it-works screens.
+//  Simplified onboarding flow with splash, how-it-works, and tips screens.
 //
 
 import SwiftUI
-import AuthenticationServices
 
 struct OnboardingView: View {
     @StateObject private var viewModel: OnboardingViewModel
@@ -23,8 +22,6 @@ struct OnboardingView: View {
             switch viewModel.currentStep {
             case .splash:
                 SplashScreen(viewModel: viewModel)
-            case .auth:
-                AuthScreen(viewModel: viewModel)
             case .howItWorks:
                 HowItWorksScreen(viewModel: viewModel)
             case .bestTips:
@@ -93,61 +90,6 @@ struct SplashScreen: View {
     }
 }
 
-// MARK: - Auth Screen
-
-struct AuthScreen: View {
-    @ObservedObject var viewModel: OnboardingViewModel
-    
-    var body: some View {
-        VStack(spacing: DS.Spacing.xl) {
-            Spacer()
-            
-            VStack(spacing: DS.Spacing.l) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(DS.Color.accent)
-                
-                VStack(spacing: DS.Spacing.s) {
-                    Text("Sign In to Continue")
-                        .font(DS.Typography.titleFont())
-                        .multilineTextAlignment(.center)
-                    
-                    Text("Secure access with your Apple ID")
-                        .font(DS.Typography.bodyFont())
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            
-            Spacer()
-            
-            VStack(spacing: DS.Spacing.m) {
-                SignInWithAppleButton(.signIn) { request in
-                    request.requestedScopes = [.fullName, .email]
-                } onCompletion: { result in
-                    viewModel.handleSignInWithApple(result)
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .cornerRadius(12)
-                .disabled(viewModel.isSigningIn)
-                .opacity(viewModel.isSigningIn ? 0.6 : 1.0)
-                
-                
-                // Show error message if present
-                if let errorMessage = viewModel.errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .transition(.opacity)
-                }
-            }
-            .padding(.horizontal, DS.Spacing.xl)
-        }
-        .padding()
-    }
-}
 
 // MARK: - How It Works Screen
 

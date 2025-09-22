@@ -136,21 +136,28 @@ final class SubscriptionService: ObservableObject, SubscriptionServiceProtocol {
 
 /// Mock SubscriptionService for development and testing
 actor MockSubscriptionService: SubscriptionServiceProtocol {
-	private var _isPremium: Bool = false
+	private var _isPremium: Bool {
+		get {
+			UserDefaults.standard.bool(forKey: "mock_premium_status")
+		}
+		set {
+			UserDefaults.standard.set(newValue, forKey: "mock_premium_status")
+		}
+	}
 	
 	var isPremium: Bool {
 		get async { _isPremium }
 	}
 	
 	func restorePurchases() async throws {
-		// Simulate restore
-		_isPremium = UserDefaults.standard.bool(forKey: "mock_premium_status")
+		// Simulate restore - check UserDefaults
+		print("🔧 Mock: Restored premium status = \(_isPremium)")
 	}
 	
 	func purchase(productId: String) async throws -> Bool {
 		// Simulate purchase
 		_isPremium = true
-		UserDefaults.standard.set(true, forKey: "mock_premium_status")
+		print("🔧 Mock: Purchased premium = true")
 		return true
 	}
 	

@@ -7,11 +7,9 @@
 
 import Foundation
 import SwiftUI
-import AuthenticationServices
 
 enum OnboardingStep: CaseIterable {
     case splash
-    case auth
     case howItWorks
     case bestTips
 }
@@ -21,15 +19,10 @@ final class OnboardingViewModel: ObservableObject {
     // MARK: - Published State
     @Published private(set) var currentStep: OnboardingStep = .splash
     @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
     
     // Splash screen state
     @Published private(set) var splashAnimating = false
     @Published private(set) var showNextButton = false
-    
-    // Auth state
-    @Published private(set) var isSigningIn = false
-    @Published private(set) var authenticationComplete = false
     
     // MARK: - Dependencies
     private let services: ServiceContainer
@@ -58,10 +51,6 @@ final class OnboardingViewModel: ObservableObject {
         switch currentStep {
         case .splash:
             withAnimation(.easeInOut(duration: 0.5)) {
-                currentStep = .auth
-            }
-        case .auth:
-            withAnimation(.easeInOut(duration: 0.5)) {
                 currentStep = .howItWorks
             }
         case .howItWorks:
@@ -72,21 +61,6 @@ final class OnboardingViewModel: ObservableObject {
             completeOnboarding()
         }
     }
-    
-    func handleSignInWithApple(_ result: Result<ASAuthorization, Error>) {
-        guard !isSigningIn else { return }
-        
-        isSigningIn = true
-        errorMessage = nil
-        
-        switch result {
-        case .success(let authorization):
-            handleSuccessfulAuthorization(authorization)
-        case .failure(let error):
-            handleAuthenticationError(error)
-        }
-    }
-    
     
     func completeOnboarding() {
         // Save onboarding completion state
@@ -117,74 +91,6 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
     
-    private func handleSuccessfulAuthorization(_ authorization: ASAuthorization) {
-        guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-            handleAuthenticationError(OnboardingError.invalidCredential)
-            return
-        }
-        
-        // In a real app, you'd validate with your backend and store user session
-        services.analyticsService.track(event: "user_signed_in", properties: [
-            "method": "apple_id",
-            "user_id": appleIDCredential.user
-        ])
-        
-        // Simulate a brief delay for UX
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            
-            authenticationComplete = true
-            isSigningIn = false
-            moveToNextStep()
-        }
-    }
-    
-    private func handleAuthenticationError(_ error: Error) {
-        isSigningIn = false
-        
-        if let authError = error as? ASAuthorizationError {
-            switch authError.code {
-            case .canceled:
-                // User cancelled - don't show error
-                return
-            case .failed:
-                errorMessage = "Authentication failed. Please try again."
-            case .invalidResponse:
-                errorMessage = "Invalid response from Apple. Please try again."
-            case .notHandled:
-                errorMessage = "Authentication not handled. Please try again."
-            case .notInteractive:
-                errorMessage = "Authentication requires user interaction. Please try again."
-            case .unknown:
-                errorMessage = "An unknown authentication error occurred."
-            case .matchedExcludedCredential:
-                errorMessage = "This credential was excluded. Please try a different method."
-            @unknown default:
-                errorMessage = "An unexpected error occurred during authentication."
-            }
-        } else {
-            errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
-        }
-        
-        // Auto-dismiss error after 3 seconds
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            errorMessage = nil
-        }
-    }
-}
-
-// MARK: - Errors
-
-enum OnboardingError: LocalizedError {
-    case invalidCredential
-    
-    var errorDescription: String? {
-        switch self {
-        case .invalidCredential:
-            return "Invalid authentication credential received."
-        }
-    }
 }
 
 // MARK: - UserDefaults Extension
