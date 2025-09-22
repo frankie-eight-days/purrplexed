@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import Vision
 
 @MainActor
 final class CaptureAnalysisViewModel: ObservableObject {
@@ -43,6 +44,11 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var isUploadingPhoto: Bool = false
 	@Published var isAnalyzing: Bool = false
 	@Published var uploadedFileUri: String? = nil
+	
+	// Cat detection state
+	@Published var catDetectionResult: CatDetectionResult? = nil
+	@Published var isDetectingCat: Bool = false
+	@Published var optimalFrameHeight: CGFloat = 280 // Default frame height
 
 	private let media: MediaService
 	private let analysis: AnalysisService
@@ -76,6 +82,9 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				// Compress image for faster analysis while keeping original quality for thumbnail
 				self.thumbnailData = await self.compressImageForAnalysis(photo.imageData)
 				// No auto-analysis; wait for explicit Analyze CTA
+				
+				// Automatically detect cat in captured photo
+				await self.detectCatInCurrentPhoto()
 			} catch {
 				self.transition(.error(message: NSLocalizedString("error_capture_failed", comment: "")))
 				Haptics.error()
@@ -89,6 +98,9 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			// Compress picked photo for faster analysis
 			self.thumbnailData = await self.compressImageForAnalysis(data)
 			self.state = .idle
+			
+			// Automatically detect cat in new photo
+			await self.detectCatInCurrentPhoto()
 		}
 	}
 
@@ -138,6 +150,10 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		analysisTask = nil
 		progress = 0
 		resetParallelAnalysisResults()
+		// Only reset cat detection when explicitly canceling work
+		catDetectionResult = nil
+		isDetectingCat = false
+		optimalFrameHeight = 280
 	}
 	
 	private func resetParallelAnalysisResults() {
@@ -148,6 +164,10 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		isUploadingPhoto = false
 		isAnalyzing = false
 		uploadedFileUri = nil
+		// Preserve cat detection results and frame sizing during analysis
+		// catDetectionResult = nil
+		// isDetectingCat = false
+		// optimalFrameHeight = 280
 	}
 
 	// MARK: - Private
@@ -196,7 +216,11 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	}
 	
 	private func beginParallelAnalysis(photo: CapturedPhoto) async {
-		cancelWork()
+		// Cancel any existing work without resetting cat detection
+		analysisTask?.cancel()
+		analysisTask = nil
+		progress = 0
+		
 		resetParallelAnalysisResults()
 		isAnalyzing = true
 		Log.analysis.info("Starting parallel analysis")
@@ -345,6 +369,218 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			state = new
 		default:
 			break
+		}
+	}
+	
+	// MARK: - Cat Detection
+	
+	func detectCatInCurrentPhoto() async {
+		guard let data = thumbnailData else { return }
+		
+		isDetectingCat = true
+		Log.analysis.info("Starting cat detection")
+		
+		do {
+			let result = try await detectCat(in: data)
+			catDetectionResult = result
+			if let result = result {
+				Log.analysis.info("Cat detected successfully")
+				calculateOptimalFrameHeight(for: result)
+				Haptics.impact(.light)
+			} else {
+				Log.analysis.info("No cat detected in image")
+				optimalFrameHeight = 280 // Reset to default
+			}
+		} catch {
+			Log.analysis.error("Cat detection failed: \(error.localizedDescription, privacy: .public)")
+			optimalFrameHeight = 280 // Reset to default on error
+		}
+		
+		isDetectingCat = false
+	}
+	
+	private func calculateOptimalFrameHeight(for catResult: CatDetectionResult) {
+		guard let imageData = thumbnailData, UIImage(data: imageData) != nil else {
+			optimalFrameHeight = 280
+			return
+		}
+		
+		// Get screen width (assuming full width usage with padding)
+		let screenWidth = UIScreen.main.bounds.width
+		let availableWidth = screenWidth - 32 // Account for padding
+		
+		// Add padding around cat (30% padding)
+		let paddingRatio: CGFloat = 0.3
+		let paddingX = catResult.boundingBox.width * paddingRatio
+		let paddingY = catResult.boundingBox.height * paddingRatio
+		
+		let expandedCatBox = catResult.boundingBox.insetBy(dx: -paddingX, dy: -paddingY)
+		
+		// Ensure cat box stays within image bounds
+		let constrainedCatBox = expandedCatBox.intersection(
+			CGRect(origin: .zero, size: catResult.imageSize)
+		)
+		
+		// Calculate what height we need to show this cat box properly
+		let catAspectRatio = constrainedCatBox.width / constrainedCatBox.height
+		
+		var targetHeight: CGFloat
+		
+		if catAspectRatio > (availableWidth / 280) {
+			// Cat box is wider relative to container - fit to width
+			targetHeight = availableWidth / catAspectRatio
+		} else {
+			// Cat box is taller relative to container - use calculated height
+			let catWidthInFrame = constrainedCatBox.width * (availableWidth / catResult.imageSize.width)
+			targetHeight = catWidthInFrame / catAspectRatio
+		}
+		
+		// Constrain height to reasonable bounds
+		let minHeight: CGFloat = 200
+		let maxHeight: CGFloat = min(500, UIScreen.main.bounds.height * 0.6)
+		
+		optimalFrameHeight = max(minHeight, min(maxHeight, targetHeight))
+		
+		Log.analysis.info("Calculated optimal frame height: \(self.optimalFrameHeight) for cat box: \(NSCoder.string(for: constrainedCatBox))")
+	}
+	
+	private func detectCat(in imageData: Data) async throws -> CatDetectionResult? {
+		// Check if running in simulator - Vision animal detection often doesn't work in simulator
+		#if targetEnvironment(simulator)
+		Log.analysis.info("Running in simulator - using mock cat detection")
+		return mockCatDetectionForSimulator(imageData: imageData)
+		#else
+		
+		return try await withCheckedThrowingContinuation { continuation in
+			var isResumed = false
+			
+			guard let image = UIImage(data: imageData),
+				  let cgImage = image.cgImage else {
+				if !isResumed {
+					isResumed = true
+					continuation.resume(throwing: CatDetectionError.invalidImageData)
+				}
+				return
+			}
+			
+			let request = VNRecognizeAnimalsRequest { request, error in
+				guard !isResumed else { return }
+				
+				if let error = error {
+					isResumed = true
+					continuation.resume(throwing: CatDetectionError.visionError(error))
+					return
+				}
+				
+				guard let observations = request.results as? [VNRecognizedObjectObservation] else {
+					isResumed = true
+					continuation.resume(returning: nil)
+					return
+				}
+				
+				// Find the cat with highest confidence
+				var bestCatObservation: VNRecognizedObjectObservation?
+				var bestConfidence: Double = 0
+				
+				for observation in observations {
+					for label in observation.labels {
+						if label.identifier.lowercased() == "cat" && 
+						   Double(label.confidence) > 0.7 &&
+						   Double(label.confidence) > bestConfidence {
+							bestCatObservation = observation
+							bestConfidence = Double(label.confidence)
+						}
+					}
+				}
+				
+				isResumed = true
+				if let catObservation = bestCatObservation {
+					let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
+					let boundingBox = self.convertVisionBoundingBox(
+						catObservation.boundingBox,
+						to: imageSize
+					)
+					
+					let result = CatDetectionResult(
+						boundingBox: boundingBox,
+						confidence: bestConfidence,
+						imageSize: imageSize
+					)
+					continuation.resume(returning: result)
+				} else {
+					continuation.resume(returning: nil)
+				}
+			}
+			
+			let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+			do {
+				try handler.perform([request])
+			} catch {
+				if !isResumed {
+					isResumed = true
+					continuation.resume(throwing: CatDetectionError.visionError(error))
+				}
+			}
+		}
+		#endif
+	}
+	
+	#if targetEnvironment(simulator)
+	private func mockCatDetectionForSimulator(imageData: Data) -> CatDetectionResult? {
+		guard let image = UIImage(data: imageData) else { return nil }
+		
+		let imageSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+		
+		// Create a mock bounding box in the center-ish area of the image
+		let mockWidth = imageSize.width * 0.4  // 40% of image width
+		let mockHeight = imageSize.height * 0.5 // 50% of image height
+		let mockX = (imageSize.width - mockWidth) * 0.3  // Slightly off-center
+		let mockY = (imageSize.height - mockHeight) * 0.2 // Upper portion
+		
+		let mockBoundingBox = CGRect(
+			x: mockX,
+			y: mockY,
+			width: mockWidth,
+			height: mockHeight
+		)
+		
+		// Simulate 90% confidence
+		return CatDetectionResult(
+			boundingBox: mockBoundingBox,
+			confidence: 0.9,
+			imageSize: imageSize
+		)
+	}
+	#endif
+	
+	private func convertVisionBoundingBox(_ visionBox: CGRect, to imageSize: CGSize) -> CGRect {
+		let x = visionBox.origin.x * imageSize.width
+		let y = (1 - visionBox.origin.y - visionBox.height) * imageSize.height
+		let width = visionBox.width * imageSize.width
+		let height = visionBox.height * imageSize.height
+		
+		return CGRect(x: x, y: y, width: width, height: height)
+	}
+}
+
+// MARK: - Cat Detection Models
+
+struct CatDetectionResult: Sendable, Equatable {
+	let boundingBox: CGRect
+	let confidence: Double
+	let imageSize: CGSize
+}
+
+enum CatDetectionError: Error, LocalizedError {
+	case invalidImageData
+	case visionError(Error)
+	
+	var errorDescription: String? {
+		switch self {
+		case .invalidImageData:
+			return "Invalid image data"
+		case .visionError(let error):
+			return "Vision framework error: \(error.localizedDescription)"
 		}
 	}
 }

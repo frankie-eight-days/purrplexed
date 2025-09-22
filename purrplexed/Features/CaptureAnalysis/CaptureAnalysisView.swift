@@ -19,86 +19,10 @@ struct CaptureAnalysisView: View {
 	var body: some View {
 		ScrollView {
 			VStack {
-				Button(action: { showChoice = true }) {
-					ZStack {
-						RoundedRectangle(cornerRadius: 16)
-							.fill(Color.gray.opacity(0.2))
-							.overlay(frameContent)
-					}
-				}
-				.buttonStyle(.plain)
-				.frame(maxWidth: .infinity)
-				.frame(height: 280)
-				.padding()
-				.accessibilityLabel(Localized("add_photo"))
-				.confirmationDialog(Localized("add_photo"), isPresented: $showChoice, titleVisibility: .visible) {
-					Button(Localized("use_camera")) {
-						if UIImagePickerController.isSourceTypeAvailable(.camera) {
-							Task {
-								let status = await viewModel.checkCameraPermission()
-								switch status {
-								case .granted:
-									showCamera = true
-								case .notDetermined:
-									let newStatus = await viewModel.requestCameraPermission()
-									if newStatus == .granted {
-										showCamera = true
-									} else if newStatus == .denied || newStatus == .restricted {
-										showPermissionDeniedAlert = true
-									}
-								case .denied, .restricted:
-									showPermissionDeniedAlert = true
-								}
-							}
-						} else {
-							showNoCameraAlert = true
-						}
-					}
-					Button(Localized("from_photo_library")) { showLibrary = true }
-					Button(Localized("action_cancel"), role: .cancel) {}
-				}
-				.alert(Localized("camera_unavailable_title"), isPresented: $showNoCameraAlert) {
-					Button(Localized("from_photo_library")) { showLibrary = true }
-					Button(Localized("action_cancel"), role: .cancel) {}
-				} message: {
-					Text(Localized("camera_unavailable_message"))
-				}
-				.alert("Camera Permission Required", isPresented: $showPermissionDeniedAlert) {
-					Button("Open Settings") {
-						if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
-							UIApplication.shared.open(settingsUrl)
-						}
-					}
-					Button("Use Photo Library") { showLibrary = true }
-					Button("Cancel", role: .cancel) {}
-				} message: {
-					Text("Purrplexed needs camera access to take photos. Please enable camera permissions in Settings → Privacy & Security → Camera → Purrplexed")
-				}
-
-				Button(action: { viewModel.didTapAnalyze() }) {
-					if viewModel.isAnalyzing {
-						ProgressView()
-							.progressViewStyle(CircularProgressViewStyle(tint: .white))
-							.frame(maxWidth: .infinity)
-							.padding(.vertical, 14)
-					} else {
-						Text(Localized("action_analyze"))
-							.font(DS.Typography.buttonFont())
-							.frame(maxWidth: .infinity)
-							.padding(.vertical, 14)
-					}
-				}
-				.buttonStyle(.borderedProminent)
-				.padding(.horizontal)
-				.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing)
-
-				// Show parallel analysis results progressively
-				if viewModel.emotionSummary != nil || viewModel.state.isReady {
-					ParallelAnalysisResultsView(viewModel: viewModel)
-						.padding(.horizontal)
-						.transition(.opacity)
-				}
-
+				photoPickerButton
+				catFocusButtonView
+				analyzeButton
+				analysisResultsView
 				Spacer()
 			}
 			.sheet(isPresented: $showLibrary) {
@@ -119,16 +43,133 @@ struct CaptureAnalysisView: View {
 		.background(DS.Color.background)
 	}
 	
+	private var photoPickerButton: some View {
+		Button(action: { showChoice = true }) {
+			ZStack {
+				RoundedRectangle(cornerRadius: 16)
+					.fill(Color.gray.opacity(0.2))
+					.overlay(frameContent)
+			}
+		}
+		.buttonStyle(.plain)
+		.frame(maxWidth: .infinity)
+		.frame(height: viewModel.optimalFrameHeight)
+		.padding()
+		.accessibilityLabel(Localized("add_photo"))
+		.animation(.spring(response: 0.8, dampingFraction: 0.8), value: viewModel.optimalFrameHeight)
+		.confirmationDialog(Localized("add_photo"), isPresented: $showChoice, titleVisibility: .visible) {
+			Button(Localized("use_camera")) {
+				handleCameraAction()
+			}
+			Button(Localized("from_photo_library")) { showLibrary = true }
+			Button(Localized("action_cancel"), role: .cancel) {}
+		}
+		.alert(Localized("camera_unavailable_title"), isPresented: $showNoCameraAlert) {
+			Button(Localized("from_photo_library")) { showLibrary = true }
+			Button(Localized("action_cancel"), role: .cancel) {}
+		} message: {
+			Text(Localized("camera_unavailable_message"))
+		}
+		.alert("Camera Permission Required", isPresented: $showPermissionDeniedAlert) {
+			Button("Open Settings") {
+				if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+					UIApplication.shared.open(settingsUrl)
+				}
+			}
+			Button("Use Photo Library") { showLibrary = true }
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text("Purrplexed needs camera access to take photos. Please enable camera permissions in Settings → Privacy & Security → Camera → Purrplexed")
+		}
+	}
+	
+	private var catFocusButtonView: some View {
+		// Cat detection indicator - shows when detecting
+		Group {
+			if viewModel.isDetectingCat {
+				HStack {
+					Spacer()
+					HStack(spacing: 8) {
+						ProgressView()
+							.progressViewStyle(CircularProgressViewStyle(tint: DS.Color.accent))
+							.scaleEffect(0.8)
+						Text("Detecting cat...")
+					}
+					.font(.caption)
+					.padding(.horizontal, 12)
+					.padding(.vertical, 6)
+					.background(.ultraThinMaterial)
+					.clipShape(Capsule())
+					.padding(.trailing)
+					.padding(.top, -20)
+					.transition(.opacity.combined(with: .scale))
+				}
+			}
+		}
+	}
+	
+	private var analyzeButton: some View {
+		Button(action: { viewModel.didTapAnalyze() }) {
+			if viewModel.isAnalyzing {
+				ProgressView()
+					.progressViewStyle(CircularProgressViewStyle(tint: .white))
+					.frame(maxWidth: .infinity)
+					.padding(.vertical, 14)
+			} else {
+				Text(Localized("action_analyze"))
+					.font(DS.Typography.buttonFont())
+					.frame(maxWidth: .infinity)
+					.padding(.vertical, 14)
+			}
+		}
+		.buttonStyle(.borderedProminent)
+		.padding(.horizontal)
+		.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing)
+	}
+	
+	private var analysisResultsView: some View {
+		Group {
+			if viewModel.emotionSummary != nil || viewModel.state.isReady {
+				ParallelAnalysisResultsView(viewModel: viewModel)
+					.padding(.horizontal)
+					.transition(.opacity)
+			}
+		}
+	}
+	
+	private func handleCameraAction() {
+		if UIImagePickerController.isSourceTypeAvailable(.camera) {
+			Task {
+				let status = await viewModel.checkCameraPermission()
+				switch status {
+				case .granted:
+					showCamera = true
+				case .notDetermined:
+					let newStatus = await viewModel.requestCameraPermission()
+					if newStatus == .granted {
+						showCamera = true
+					} else if newStatus == .denied || newStatus == .restricted {
+						showPermissionDeniedAlert = true
+					}
+				case .denied, .restricted:
+					showPermissionDeniedAlert = true
+				}
+			}
+		} else {
+			showNoCameraAlert = true
+		}
+	}
+	
 	private var frameContent: some View {
 		GeometryReader { geo in
 			Group {
 				if let data = viewModel.thumbnailData, let ui = UIImage(data: data) {
-					Image(uiImage: ui)
-						.resizable()
-						.scaledToFill()
-						.frame(width: geo.size.width, height: geo.size.height)
-						.clipped()
-						.clipShape(RoundedRectangle(cornerRadius: 16))
+				AnimatedImageView(
+					image: ui,
+					catDetectionResult: viewModel.catDetectionResult,
+					containerSize: geo.size
+				)
+					.clipShape(RoundedRectangle(cornerRadius: 16))
 				} else {
 					Text(Localized("add_photo"))
 						.font(DS.Typography.titleFont())
@@ -426,6 +467,130 @@ struct AnalysisDetailRow: View {
 				.font(DS.Typography.bodyFont())
 				.fixedSize(horizontal: false, vertical: true)
 		}
+	}
+}
+
+// MARK: - Animated Image View for Cat Focus
+
+struct AnimatedImageView: View {
+	let image: UIImage
+	let catDetectionResult: CatDetectionResult?
+	let containerSize: CGSize
+	
+	@State private var imageOffset: CGSize = .zero
+	@State private var imageScale: CGFloat = 1.0
+	
+	var body: some View {
+		Image(uiImage: displayImage)
+			.resizable()
+			.scaledToFill()
+			.scaleEffect(imageScale)
+			.offset(imageOffset)
+			.frame(width: containerSize.width, height: containerSize.height)
+			.clipped()
+			.onAppear {
+				updateImageTransform(animated: false)
+			}
+			.onChange(of: catDetectionResult) {
+				updateImageTransform(animated: true)
+			}
+	}
+	
+	private var displayImage: UIImage {
+		// For smooth scaling, we use the original image and transform the view
+		// rather than cropping the actual image
+		return image
+	}
+	
+	private func updateImageTransform(animated: Bool) {
+		guard let catResult = catDetectionResult else {
+			// No cat detected - return to original view
+			let animation: Animation? = animated ? .spring() : nil
+			withAnimation(animation) {
+				imageOffset = .zero
+				imageScale = 1.0
+			}
+			return
+		}
+		
+		// Cat detected - automatically focus on it
+		let transform = calculateCatFocusTransform(
+			catBoundingBox: catResult.boundingBox,
+			imageSize: catResult.imageSize,
+			containerSize: containerSize
+		)
+		
+		let animation: Animation? = animated ? .spring() : nil
+		withAnimation(animation) {
+			imageOffset = transform.offset
+			imageScale = transform.scale
+		}
+	}
+	
+	private func calculateCatFocusTransform(
+		catBoundingBox: CGRect,
+		imageSize: CGSize,
+		containerSize: CGSize
+	) -> (offset: CGSize, scale: CGFloat) {
+		// Calculate the scale factor to fit the image in the container
+		let containerAspectRatio = containerSize.width / containerSize.height
+		let imageAspectRatio = imageSize.width / imageSize.height
+		
+		let baseScale: CGFloat
+		if imageAspectRatio > containerAspectRatio {
+			// Image is wider, fit to height
+			baseScale = containerSize.height / imageSize.height
+		} else {
+			// Image is taller, fit to width
+			baseScale = containerSize.width / imageSize.width
+		}
+		
+		// Add padding around the cat (20% of cat size)
+		let paddingRatio: CGFloat = 0.3
+		let paddingX = catBoundingBox.width * paddingRatio
+		let paddingY = catBoundingBox.height * paddingRatio
+		
+		let expandedCatBox = catBoundingBox.insetBy(dx: -paddingX, dy: -paddingY)
+		
+		// Calculate the scale needed to make the cat area fit nicely in the container
+		let catScaleX = containerSize.width / (expandedCatBox.width * baseScale)
+		let catScaleY = containerSize.height / (expandedCatBox.height * baseScale)
+		let catFocusScale = min(catScaleX, catScaleY, 2.5) // Cap at 2.5x zoom
+		
+		// Total scale combining base scaling and cat focus scaling
+		let totalScale = baseScale * catFocusScale
+		
+		// Calculate center of the cat in image coordinates
+		let catCenterX = catBoundingBox.midX
+		let catCenterY = catBoundingBox.midY
+		
+		// Convert to view coordinates
+		let scaledImageWidth = imageSize.width * totalScale
+		let scaledImageHeight = imageSize.height * totalScale
+		
+		// Calculate where the cat center would be in the scaled image
+		let catCenterInScaledImage = CGPoint(
+			x: catCenterX * totalScale,
+			y: catCenterY * totalScale
+		)
+		
+		// Current center of the scaled image (before offset)
+		let currentImageCenterX = scaledImageWidth / 2
+		let currentImageCenterY = scaledImageHeight / 2
+		
+		// Calculate the offset from image center to cat center
+		let catOffsetFromImageCenter = CGSize(
+			width: catCenterInScaledImage.x - currentImageCenterX,
+			height: catCenterInScaledImage.y - currentImageCenterY
+		)
+		
+		// The offset we need is negative of the cat's offset from image center
+		let finalOffset = CGSize(
+			width: -catOffsetFromImageCenter.width,
+			height: -catOffsetFromImageCenter.height
+		)
+		
+		return (offset: finalOffset, scale: catFocusScale)
 	}
 }
 
