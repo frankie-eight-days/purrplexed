@@ -20,7 +20,6 @@ final class CameraViewModel: ObservableObject {
 	}
 
 	@Published private(set) var state: State = .idle
-	@Published private(set) var remainingFree: Int = 0
 
 	private let services: ServiceContainer
 	private var statusTask: Task<Void, Never>? = nil
@@ -33,10 +32,7 @@ final class CameraViewModel: ObservableObject {
 	}
 
 	func onAppear() {
-		Task { [weak self] in
-			guard let self else { return }
-			self.remainingFree = await self.services.usageMeter.remainingFreeCount()
-		}
+		// Camera setup if needed
 	}
 
 	func onDisappear() {
@@ -47,11 +43,6 @@ final class CameraViewModel: ObservableObject {
 		guard state == .idle else { return } // ignore illegal
 		Task { [weak self] in
 			guard let self else { return }
-			let canStart = await self.services.usageMeter.canStartJob()
-			guard canStart else {
-				self.transition(.error(message: "Daily limit reached"))
-				return
-			}
 			// Simulate capture and create mediaId
 			let mediaId = UUID().uuidString
 			self.transition(.submitting(mediaId: mediaId))
@@ -62,10 +53,6 @@ final class CameraViewModel: ObservableObject {
 	func beginProcessing(with image: UIImage) {
 		Task { [weak self] in
 			guard let self else { return }
-			guard await self.services.usageMeter.canStartJob() else {
-				self.transition(.error(message: "Daily limit reached"))
-				return
-			}
 			self.transition(.submitting(mediaId: UUID().uuidString))
 			if let data = image.jpegData(compressionQuality: 0.9) {
 				await self.startProcessing(imageData: data)
@@ -92,9 +79,7 @@ final class CameraViewModel: ObservableObject {
 						break
 					case .completed:
 						await self.services.jobOrchestrator.finishSuccess()
-						let remaining = await self.services.usageMeter.remainingFreeCount()
 						await MainActor.run {
-							self.remainingFree = remaining
 							self.transition(.result(jobId: jobId))
 							self.router?.present(.result(jobId: jobId))
 						}

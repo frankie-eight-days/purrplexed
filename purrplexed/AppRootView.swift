@@ -11,6 +11,7 @@ struct AppRootView: View {
 	@Environment(\.services) private var services
 	@ObservedObject private var router: AppRouter
 	@StateObject private var captureVM: CaptureAnalysisViewModel
+	@State private var showOnboarding = !UserDefaults.hasCompletedOnboarding
 
 	init(services: ServiceContainer) {
 		self._router = ObservedObject(initialValue: services.router)
@@ -22,7 +23,9 @@ struct AppRootView: View {
 			analytics: services.analyticsService,
 			permissions: services.permissionsService,
 			offlineQueue: services.offlineQueue,
-			captionService: services.captionService
+			captionService: services.captionService,
+			usageMeter: services.usageMeter,
+			subscriptionService: services.subscriptionService
 		))
 	}
 
@@ -31,7 +34,24 @@ struct AppRootView: View {
 			CaptureAnalysisView(viewModel: captureVM)
 				.navigationTitle("Purrplexed")
 				.navigationBarTitleDisplayMode(.inline)
+				.onAppear {
+					captureVM.refreshUsageStatus()
+				}
+				.onChange(of: captureVM.showPaywall) { _, shouldShow in
+					if shouldShow {
+						router.present(.paywall)
+						captureVM.showPaywall = false // Reset flag
+					}
+				}
 				.toolbar {
+					ToolbarItem(placement: .topBarLeading) {
+						if !captureVM.isPremium {
+							UsageMeterPill(used: captureVM.usedCount, total: captureVM.dailyLimit) {
+								router.present(.paywall)
+							}
+						}
+					}
+					
 					ToolbarItem(placement: .topBarTrailing) {
 						Button(action: { router.present(.settings) }) {
 							Image(systemName: "gear")
@@ -52,15 +72,13 @@ struct AppRootView: View {
 			case .settings:
 				SettingsView(viewModel: SettingsViewModel(services: services!))
 			case .onboarding:
-				OnboardingView(services: services!) {
-					router.dismiss()
-				}
+				// This case should never be hit since onboarding uses fullScreenCover
+				EmptyView()
 			}
 		}
-		.onAppear {
-			// Check if user needs onboarding on first app launch
-			if !UserDefaults.hasCompletedOnboarding {
-				router.present(.onboarding)
+		.fullScreenCover(isPresented: $showOnboarding) {
+			OnboardingView(services: services!) {
+				showOnboarding = false
 			}
 		}
 	}

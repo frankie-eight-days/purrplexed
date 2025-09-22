@@ -29,8 +29,7 @@ struct CameraView: View {
 				.padding(.bottom, DS.Spacing.xl)
 			}
 
-			UsageMeterPill(remaining: viewModel.remainingFree)
-				.padding(DS.Spacing.m)
+			EmptyView()
 		}
 		.onAppear { viewModel.onAppear() }
 		.onDisappear { viewModel.onDisappear() }
@@ -45,6 +44,7 @@ struct CameraView: View {
 			}
 		}
 	}
+	
 
 	private var shutter: some View {
 		Button(action: { showChoice = true }) {

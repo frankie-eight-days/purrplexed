@@ -47,16 +47,16 @@ final class HTTPCaptionGenerationService: CaptionGenerationService {
 		request.httpMethod = "POST"
 		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 		
-		let payload: [String: Any] = [
+		let payload: [String: Any?] = [
 			"style": style.rawValue,
 			"emotionSummary": try? emotionSummary?.asDictionary(),
 			"bodyLanguageAnalysis": try? bodyLanguageAnalysis?.asDictionary(),
 			"contextualEmotion": try? contextualEmotion?.asDictionary(),
 			"ownerAdvice": try? ownerAdvice?.asDictionary(),
 			"catJokes": try? catJokes?.asDictionary()
-		].compactMapValues { $0 }
+		]
 		
-		let body = try JSONSerialization.data(withJSONObject: payload)
+		let body = try JSONSerialization.data(withJSONObject: payload.compactMapValues { $0 })
 		let (data, response) = try await urlSession.upload(for: request, from: body)
 		
 		guard let http = response as? HTTPURLResponse, 

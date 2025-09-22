@@ -156,12 +156,14 @@ final class OnboardingViewModel: ObservableObject {
             case .notInteractive:
                 errorMessage = "Authentication requires user interaction. Please try again."
             case .unknown:
-                errorMessage = "An unknown error occurred. Please try again."
+                errorMessage = "An unknown authentication error occurred."
+            case .matchedExcludedCredential:
+                errorMessage = "This credential was excluded. Please try a different method."
             @unknown default:
-                errorMessage = "An unexpected error occurred. Please try again."
+                errorMessage = "An unexpected error occurred during authentication."
             }
         } else {
-            errorMessage = error.localizedDescription
+            errorMessage = "An unexpected error occurred: \(error.localizedDescription)"
         }
         
         // Auto-dismiss error after 3 seconds

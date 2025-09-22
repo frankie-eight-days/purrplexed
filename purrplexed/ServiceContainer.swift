@@ -55,27 +55,38 @@ enum ProcessingStatus: Equatable, Sendable {
 actor JobOrchestrator: Sendable {
 	private let imageService: ImageProcessingService
 	private let usageService: UsageMeterServiceProtocol
+	private let subscriptionService: SubscriptionServiceProtocol
 
-	init(imageService: ImageProcessingService, usageService: UsageMeterServiceProtocol) {
+	init(imageService: ImageProcessingService, usageService: UsageMeterServiceProtocol, subscriptionService: SubscriptionServiceProtocol) {
 		self.imageService = imageService
 		self.usageService = usageService
+		self.subscriptionService = subscriptionService
 	}
 
 	/// Submits an image for processing and returns an AsyncStream of statuses.
 	func startJob(imageData: Data) async throws -> (jobId: String, stream: AsyncStream<ProcessingStatus>) {
-		await usageService.reserve()
+		let isPremium = await subscriptionService.isPremium
+		if !isPremium {
+			await usageService.reserve()
+		}
 		let jobId = try await imageService.submit(imageData: imageData)
 		return (jobId, imageService.statusStream(jobId: jobId))
 	}
 
 	/// Mark job as completed successfully.
 	func finishSuccess() async {
-		await usageService.commit()
+		let isPremium = await subscriptionService.isPremium
+		if !isPremium {
+			await usageService.commit()
+		}
 	}
 
 	/// Mark job as failed/cancelled.
 	func finishFailure() async {
-		await usageService.rollback()
+		let isPremium = await subscriptionService.isPremium
+		if !isPremium {
+			await usageService.rollback()
+		}
 	}
 }
 
@@ -87,6 +98,7 @@ final class ServiceContainer: ObservableObject {
 	let usageMeter: UsageMeterServiceProtocol
 	let imageService: ImageProcessingService
 	let jobOrchestrator: JobOrchestrator
+	let subscriptionService: SubscriptionServiceProtocol
 	// New services
 	let mediaService: MediaService
 	let analysisService: AnalysisService
@@ -102,6 +114,7 @@ final class ServiceContainer: ObservableObject {
 		router: AppRouter,
 		usageMeter: UsageMeterServiceProtocol,
 		imageService: ImageProcessingService,
+		subscriptionService: SubscriptionServiceProtocol? = nil,
 		mediaService: MediaService = MockMediaService(),
 		analysisService: AnalysisService = MockAnalysisService(),
 		parallelAnalysisService: ParallelAnalysisService? = nil,
@@ -115,7 +128,8 @@ final class ServiceContainer: ObservableObject {
 		self.router = router
 		self.usageMeter = usageMeter
 		self.imageService = imageService
-		self.jobOrchestrator = JobOrchestrator(imageService: imageService, usageService: usageMeter)
+		self.subscriptionService = subscriptionService ?? MockSubscriptionService()
+		self.jobOrchestrator = JobOrchestrator(imageService: imageService, usageService: usageMeter, subscriptionService: self.subscriptionService)
 		self.mediaService = mediaService
 		// Prefer backend service when an API URL is present, otherwise use provided mock
 		if let backendURL = env.apiBaseURL ?? URL(string: "https://purrplexed-backend.vercel.app") {

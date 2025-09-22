@@ -16,7 +16,10 @@ struct CaptureAnalysisView: View {
 	@State private var showNoCameraAlert = false
 	@State private var showPermissionDeniedAlert = false
 	@State private var showShareCard = false
+	@State private var randomCatEmoji = "🐈"
 	
+	private let catEmojis = ["🐈", "😹", "😻", "😼", "😽", "🙀", "😿", "😾", "🐅", "🐆"]
+
 	var body: some View {
 		ScrollView {
 			VStack {
@@ -42,6 +45,11 @@ struct CaptureAnalysisView: View {
 			}
 		}
 		.background(DS.Color.background)
+		.onAppear(perform: setup)
+	}
+	
+	private func setup() {
+		randomCatEmoji = catEmojis.randomElement() ?? "🐈"
 	}
 	
 	private var photoPickerButton: some View {
@@ -200,7 +208,7 @@ struct CaptureAnalysisView: View {
 				)
 					.clipShape(RoundedRectangle(cornerRadius: 16))
 				} else {
-					Text(Localized("add_photo"))
+					Text("Add \(randomCatEmoji) photo")
 						.font(DS.Typography.titleFont())
 						.foregroundStyle(.secondary)
 						.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -708,7 +716,9 @@ private func Localized(_ key: String) -> String { NSLocalizedString(key, comment
 		analytics: MockAnalyticsService(),
 		permissions: MockPermissionsService(),
 		offlineQueue: InMemoryOfflineQueue(),
-		captionService: MockCaptionGenerationService()
+		captionService: MockCaptionGenerationService(),
+		usageMeter: UsageMeterService(limit: 3),
+		subscriptionService: MockSubscriptionService()
 	)
-	return CaptureAnalysisView(viewModel: vm)
+	CaptureAnalysisView(viewModel: vm)
 }

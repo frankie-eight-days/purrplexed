@@ -51,6 +51,13 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var catDetectionResult: CatDetectionResult? = nil
 	@Published var isDetectingCat: Bool = false
 	@Published var optimalFrameHeight: CGFloat = 280 // Default frame height
+	
+	// Usage tracking
+	@Published private(set) var usedCount: Int = 0
+	@Published private(set) var dailyLimit: Int = 3
+	@Published private(set) var isPremium: Bool = false
+	@Published var showPaywall: Bool = false
+	private var hasCommittedUsage = false
 
 	private let media: MediaService
 	private let analysis: AnalysisService
@@ -60,9 +67,11 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	private let permissions: PermissionsService
 	private let offlineQueue: OfflineQueueing
 	private let captionService: CaptionGenerationService
+	private let usageMeter: UsageMeterServiceProtocol
+	private let subscriptionService: SubscriptionServiceProtocol
 	private var analysisTask: Task<Void, Never>? = nil
 
-	init(media: MediaService, analysis: AnalysisService, parallelAnalysis: ParallelAnalysisService, share: ShareService, analytics: AnalyticsService, permissions: PermissionsService, offlineQueue: OfflineQueueing, captionService: CaptionGenerationService? = nil) {
+	init(media: MediaService, analysis: AnalysisService, parallelAnalysis: ParallelAnalysisService, share: ShareService, analytics: AnalyticsService, permissions: PermissionsService, offlineQueue: OfflineQueueing, captionService: CaptionGenerationService? = nil, usageMeter: UsageMeterServiceProtocol, subscriptionService: SubscriptionServiceProtocol) {
 		self.media = media
 		self.analysis = analysis
 		self.parallelAnalysis = parallelAnalysis
@@ -70,10 +79,33 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		self.analytics = analytics
 		self.permissions = permissions
 		self.offlineQueue = offlineQueue
+		self.usageMeter = usageMeter
+		self.subscriptionService = subscriptionService
 		// Use provided caption service or create a local one as fallback
 		self.captionService = captionService ?? LocalCaptionGenerationService()
 	}
 
+	// MARK: - Usage & Premium Status
+	
+	func refreshUsageStatus() {
+		Task { [weak self] in
+			guard let self else { return }
+			let remaining = await self.usageMeter.remainingFreeCount()
+			let premium = await self.subscriptionService.isPremium
+			let newUsedCount = self.dailyLimit - remaining
+			print("🔢 Refreshing usage status - used: \(newUsedCount), remaining: \(remaining), premium: \(premium)")
+			await MainActor.run {
+				self.usedCount = newUsedCount
+				self.isPremium = premium
+			}
+		}
+	}
+	
+	private func canStartAnalysis() async -> Bool {
+		let premium = await subscriptionService.isPremium
+		return premium ? true : await usageMeter.canStartJob()
+	}
+	
 	// MARK: - Inputs
 
 	func didTapCapture() {
@@ -124,6 +156,13 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		Task { [weak self] in
 			guard let self else { return }
 			guard let data = self.thumbnailData else { Log.analysis.warning("Analyze tapped with no image"); return }
+			
+			// Check usage limits first
+			guard await self.canStartAnalysis() else {
+				await MainActor.run { self.showPaywall = true }
+				return
+			}
+			
 			Log.analysis.info("Analyze tapped; starting permissions check")
 			guard await self.ensurePermissionFlow(photosOnly: true) else { Log.permissions.warning("Permissions not granted"); return }
 			Log.analysis.info("Permissions OK; beginning parallel analysis")
@@ -135,6 +174,13 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		Task { [weak self] in
 			guard let self else { return }
 			guard let data = self.thumbnailData else { Log.analysis.warning("Analyze tapped with no image"); return }
+			
+			// Check usage limits first
+			guard await self.canStartAnalysis() else {
+				await MainActor.run { self.showPaywall = true }
+				return
+			}
+			
 			Log.analysis.info("Classic analyze tapped; starting permissions check")
 			guard await self.ensurePermissionFlow(photosOnly: true) else { Log.permissions.warning("Permissions not granted"); return }
 			Log.analysis.info("Permissions OK; beginning classic analysis")
@@ -262,7 +308,17 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		analysisTask = nil
 		progress = 0
 		
+		// Reserve usage for non-premium users
+		let isPremium = await subscriptionService.isPremium
+		print("🔢 Starting analysis - isPremium: \(isPremium)")
+		if !isPremium {
+			await usageMeter.reserve()
+			let remaining = await usageMeter.remainingFreeCount()
+			print("🔢 Usage reserved - remaining: \(remaining)")
+		}
+		
 		resetParallelAnalysisResults()
+		hasCommittedUsage = false  // Reset for new analysis
 		isAnalyzing = true
 		Log.analysis.info("Starting parallel analysis")
 		transition(.processing(media: .photo))
@@ -291,6 +347,12 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				Haptics.error()
 				self.analytics.track(event: "parallel_analysis_error", properties: ["error": error.localizedDescription])
 				Log.network.error("Parallel analysis network error: \(error.localizedDescription, privacy: .public)")
+				
+				// Rollback usage for non-premium users on error
+				let isPremium = await self.subscriptionService.isPremium
+				if !isPremium {
+					await self.usageMeter.rollback()
+				}
 			}
 		}
 	}
@@ -353,6 +415,26 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		if isAnalyzing {
 			Log.analysis.info("First analysis response received - stopping spinner")
 			isAnalyzing = false
+			
+			// Commit usage on FIRST successful response (not completion)
+			if !hasCommittedUsage {
+				hasCommittedUsage = true
+				print("🔢 First successful response - committing usage")
+				Task { [weak self] in
+					guard let self else { return }
+					let isPremium = await self.subscriptionService.isPremium
+					print("🔢 About to commit on first response - isPremium: \(isPremium)")
+					if !isPremium {
+						await self.usageMeter.commit()
+						let remaining = await self.usageMeter.remainingFreeCount()
+						let newUsedCount = self.dailyLimit - remaining
+						print("🔢 Usage updated on first response: used=\(newUsedCount), remaining=\(remaining), limit=\(self.dailyLimit)")
+						await MainActor.run {
+							self.usedCount = newUsedCount
+						}
+					}
+				}
+			}
 		}
 	}
 	
@@ -366,6 +448,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		
 		// Complete as soon as all core analyses are done - cat jokes are bonus content
 		if coreAnalysesComplete {
+			print("🔢 Core analyses complete - hasCommittedUsage: \(hasCommittedUsage)")
 			progress = 1.0
 			Haptics.success()
 			Log.analysis.info("Core analyses complete - finishing (cat jokes optional)")
@@ -384,12 +467,22 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			transition(.ready(result: result))
 			// Note: isAnalyzing is already set to false by stopSpinnerOnFirstResponse()
 			analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
+			
+			// Usage will be committed on first successful response, not here
 		}
 	}
 
 	private func beginAnalysis(photo: CapturedPhoto, audio: CapturedAudio?) async {
 		cancelWork()
 		let mediaKind: MediaDescriptor = audio == nil ? .photo : .photoWithAudio
+		
+		// Reserve usage for non-premium users
+		let isPremium = await subscriptionService.isPremium
+		if !isPremium {
+			await usageMeter.reserve()
+		}
+		
+		hasCommittedUsage = false  // Reset for new analysis
 		Log.analysis.info("Transition to processing: \(String(describing: mediaKind))")
 		transition(.processing(media: mediaKind))
 		analytics.track(event: "analysis_start", properties: ["media": String(describing: mediaKind)])
@@ -411,12 +504,20 @@ final class CaptureAnalysisViewModel: ObservableObject {
 						await MainActor.run { self.transition(.ready(result: result)) }
 						self.analytics.track(event: "analysis_complete", properties: ["confidence": result.confidence])
 						Log.analysis.info("Status: completed")
+						
+						// Usage will be committed on first successful response, not here
 					case .failed(let msg):
 						await self.offlineQueue.enqueue(photo: photo, audio: audio)
 						await MainActor.run { self.transition(.error(message: msg)) }
 						Haptics.error()
 						self.analytics.track(event: "analysis_error", properties: ["message": msg])
 						Log.analysis.error("Status: failed \(msg, privacy: .public)")
+						
+						// Rollback usage for non-premium users on error
+						let isPremium = await self.subscriptionService.isPremium
+						if !isPremium {
+							await self.usageMeter.rollback()
+						}
 					}
 				}
 			} catch {
@@ -424,6 +525,12 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				await MainActor.run { self.transition(.error(message: NSLocalizedString("error_network_generic", comment: ""))) }
 				Haptics.error()
 				Log.network.error("Analyze network error: \(error.localizedDescription, privacy: .public)")
+				
+				// Rollback usage for non-premium users on error
+				let isPremium = await self.subscriptionService.isPremium
+				if !isPremium {
+					await self.usageMeter.rollback()
+				}
 			}
 		}
 	}
