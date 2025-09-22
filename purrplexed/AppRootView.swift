@@ -21,7 +21,8 @@ struct AppRootView: View {
 			share: services.shareService,
 			analytics: services.analyticsService,
 			permissions: services.permissionsService,
-			offlineQueue: services.offlineQueue
+			offlineQueue: services.offlineQueue,
+			captionService: services.captionService
 		))
 	}
 

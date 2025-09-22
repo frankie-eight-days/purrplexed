@@ -45,6 +45,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var isUploadingPhoto: Bool = false
 	@Published var isAnalyzing: Bool = false
 	@Published var uploadedFileUri: String? = nil
+	@Published var showShareCard: Bool = false
 	
 	// Cat detection state
 	@Published var catDetectionResult: CatDetectionResult? = nil
@@ -58,9 +59,10 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	private let analytics: AnalyticsService
 	private let permissions: PermissionsService
 	private let offlineQueue: OfflineQueueing
+	private let captionService: CaptionGenerationService
 	private var analysisTask: Task<Void, Never>? = nil
 
-	init(media: MediaService, analysis: AnalysisService, parallelAnalysis: ParallelAnalysisService, share: ShareService, analytics: AnalyticsService, permissions: PermissionsService, offlineQueue: OfflineQueueing) {
+	init(media: MediaService, analysis: AnalysisService, parallelAnalysis: ParallelAnalysisService, share: ShareService, analytics: AnalyticsService, permissions: PermissionsService, offlineQueue: OfflineQueueing, captionService: CaptionGenerationService? = nil) {
 		self.media = media
 		self.analysis = analysis
 		self.parallelAnalysis = parallelAnalysis
@@ -68,6 +70,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		self.analytics = analytics
 		self.permissions = permissions
 		self.offlineQueue = offlineQueue
+		// Use provided caption service or create a local one as fallback
+		self.captionService = captionService ?? LocalCaptionGenerationService()
 	}
 
 	// MARK: - Inputs
@@ -141,6 +145,29 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	func didToggleAudio(_ on: Bool) { addAudio = on }
 	func didTapRetry() { transition(.idle) }
 
+	func presentShareCard() {
+		showShareCard = true
+		analytics.track(event: "share_tap", properties: [
+			"hasEmotion": emotionSummary != nil,
+			"hasBodyLanguage": bodyLanguageAnalysis != nil,
+			"hasContextual": contextualEmotion != nil,
+			"hasAdvice": ownerAdvice != nil,
+			"hasJokes": catJokes != nil
+		])
+	}
+	
+	func createShareCardViewModel() -> ShareCardViewModel {
+		return ShareCardViewModel(
+			catImageData: thumbnailData,
+			emotionSummary: emotionSummary,
+			bodyLanguageAnalysis: bodyLanguageAnalysis,
+			contextualEmotion: contextualEmotion,
+			ownerAdvice: ownerAdvice,
+			catJokes: catJokes,
+			captionService: captionService
+		)
+	}
+	
 	func didTapShare(result: AnalysisResult) {
 		analytics.track(event: "share_tap", properties: ["confidence": result.confidence])
 		Task { [weak self] in
@@ -177,6 +204,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		isUploadingPhoto = false
 		isAnalyzing = false
 		uploadedFileUri = nil
+		showShareCard = false
 		// Preserve cat detection results and frame sizing during analysis
 		// catDetectionResult = nil
 		// isDetectingCat = false

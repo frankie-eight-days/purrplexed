@@ -95,6 +95,7 @@ final class ServiceContainer: ObservableObject {
 	let analyticsService: AnalyticsService
 	let permissionsService: PermissionsService
 	let offlineQueue: OfflineQueueing
+	let captionService: CaptionGenerationService
 
 	init(
 		env: Env = .load(),
@@ -107,7 +108,8 @@ final class ServiceContainer: ObservableObject {
 		shareService: ShareService = MockShareService(),
 		analyticsService: AnalyticsService = MockAnalyticsService(),
 		permissionsService: PermissionsService = MockPermissionsService(),
-		offlineQueue: OfflineQueueing = InMemoryOfflineQueue()
+		offlineQueue: OfflineQueueing = InMemoryOfflineQueue(),
+		captionService: CaptionGenerationService? = nil
 	) {
 		self.env = env
 		self.router = router
@@ -127,6 +129,13 @@ final class ServiceContainer: ObservableObject {
 		self.analyticsService = analyticsService
 		self.permissionsService = permissionsService
 		self.offlineQueue = offlineQueue
+		
+		// Caption service - prefer backend service when available, otherwise use local
+		if let backendURL = env.apiBaseURL ?? URL(string: "https://purrplexed-backend.vercel.app") {
+			self.captionService = captionService ?? HTTPCaptionGenerationService(baseURL: backendURL)
+		} else {
+			self.captionService = captionService ?? LocalCaptionGenerationService()
+		}
 	}
 }
 
