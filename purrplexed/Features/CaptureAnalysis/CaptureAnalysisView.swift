@@ -192,6 +192,7 @@ struct ParallelAnalysisResultsView: View {
 		case bodyLanguage = "Body Language"
 		case contextualEmotion = "Contextual Analysis"
 		case ownerAdvice = "Owner Advice"
+		case catJokes = "Cat Jokes"
 	}
 	
 	var body: some View {
@@ -212,8 +213,11 @@ struct ParallelAnalysisResultsView: View {
 						HStack {
 							Text("Emotion:")
 								.fontWeight(.medium)
-							Text(emotionSummary.emotion)
-								.foregroundColor(DS.Color.accent)
+							HStack(spacing: 4) {
+								Text(emotionSummary.emoji)
+								Text(emotionSummary.emotion)
+							}
+							.foregroundColor(DS.Color.accent)
 							Spacer()
 							Text("(\(emotionSummary.intensity))")
 								.font(.caption)
@@ -223,6 +227,20 @@ struct ParallelAnalysisResultsView: View {
 						Text(emotionSummary.description)
 							.font(DS.Typography.bodyFont())
 							.fixedSize(horizontal: false, vertical: true)
+						
+						// Warning message if present
+						if let warningMessage = emotionSummary.warningMessage, !warningMessage.isEmpty {
+							HStack(alignment: .top, spacing: 8) {
+								Image(systemName: "exclamationmark.triangle.fill")
+									.foregroundColor(.red)
+								Text(warningMessage)
+									.font(DS.Typography.bodyFont())
+									.fontWeight(.medium)
+									.foregroundColor(.red)
+									.fixedSize(horizontal: false, vertical: true)
+							}
+							.padding(.top, 4)
+						}
 					}
 				}
 				.frame(maxWidth: .infinity, alignment: .leading)
@@ -277,6 +295,8 @@ struct ParallelAnalysisResultsView: View {
 			return viewModel.contextualEmotion != nil
 		case .ownerAdvice:
 			return viewModel.ownerAdvice != nil
+		case .catJokes:
+			return viewModel.catJokes != nil
 		}
 	}
 	
@@ -302,6 +322,10 @@ struct ParallelAnalysisResultsView: View {
 		case .ownerAdvice:
 			if let analysis = viewModel.ownerAdvice {
 				OwnerAdviceContentView(analysis: analysis)
+			}
+		case .catJokes:
+			if let jokes = viewModel.catJokes {
+				CatJokesContentView(jokes: jokes)
 			}
 		}
 	}
@@ -352,6 +376,7 @@ struct AnalysisTrayCard<Content: View>: View {
 		case .bodyLanguage: return "figure.walk"
 		case .contextualEmotion: return "scope"
 		case .ownerAdvice: return "lightbulb.fill"
+		case .catJokes: return "face.smiling"
 		}
 	}
 	
@@ -360,6 +385,7 @@ struct AnalysisTrayCard<Content: View>: View {
 		case .bodyLanguage: return .green
 		case .contextualEmotion: return .orange
 		case .ownerAdvice: return .purple
+		case .catJokes: return .yellow
 		}
 	}
 	
@@ -368,6 +394,7 @@ struct AnalysisTrayCard<Content: View>: View {
 		case .bodyLanguage: return Color.green.opacity(0.15)
 		case .contextualEmotion: return Color.orange.opacity(0.15)
 		case .ownerAdvice: return Color.purple.opacity(0.15)
+		case .catJokes: return Color.yellow.opacity(0.15)
 		}
 	}
 }
@@ -383,6 +410,7 @@ struct BodyLanguageContentView: View {
 			AnalysisDetailRow(label: "Ears", value: analysis.ears)
 			AnalysisDetailRow(label: "Tail", value: analysis.tail)
 			AnalysisDetailRow(label: "Eyes", value: analysis.eyes)
+			AnalysisDetailRow(label: "Whiskers", value: analysis.whiskers)
 			
 			Divider()
 				.padding(.vertical, 4)
@@ -406,22 +434,17 @@ struct ContextualEmotionContentView: View {
 	
 	var body: some View {
 		VStack(alignment: .leading, spacing: 8) {
-			AnalysisDetailRow(label: "Context Clues", value: analysis.contextClues)
-			AnalysisDetailRow(label: "Environmental Factors", value: analysis.environmentalFactors)
+			BulletPointSection(label: "Context Clues", bullets: analysis.contextClues, bulletColor: .primary)
+			BulletPointSection(label: "Environmental Factors", bullets: analysis.environmentalFactors, bulletColor: .primary)
 			
 			Divider()
 				.padding(.vertical, 4)
 			
-			VStack(alignment: .leading, spacing: 4) {
-				Text("Emotional Meaning")
-					.font(.caption)
-					.fontWeight(.medium)
-					.foregroundColor(.secondary)
-				Text(analysis.emotionalMeaning)
-					.font(DS.Typography.bodyFont())
-					.fontWeight(.medium)
-					.foregroundColor(.orange)
-			}
+			BulletPointSection(
+				label: "Emotional Meaning", 
+				bullets: analysis.emotionalMeaning, 
+				bulletColor: .orange
+			)
 		}
 	}
 }
@@ -431,22 +454,73 @@ struct OwnerAdviceContentView: View {
 	
 	var body: some View {
 		VStack(alignment: .leading, spacing: 8) {
-			AnalysisDetailRow(label: "Immediate Actions", value: analysis.immediateActions)
-			AnalysisDetailRow(label: "Long-term Suggestions", value: analysis.longTermSuggestions)
+			BulletPointSection(label: "Immediate Actions", bullets: analysis.immediateActionsBulletPoints)
+			BulletPointSection(label: "Long-term Suggestions", bullets: analysis.longTermSuggestionsBulletPoints)
 			
-			if !analysis.warningSigns.isEmpty {
+			// Only show warning signs if they exist and are not empty
+			if !analysis.warningSignsBulletPoints.isEmpty {
 				Divider()
 					.padding(.vertical, 4)
 				
-				VStack(alignment: .leading, spacing: 4) {
-					Text("Warning Signs")
-						.font(.caption)
-						.fontWeight(.medium)
-						.foregroundColor(.secondary)
-					Text(analysis.warningSigns)
+				BulletPointSection(
+					label: "Warning Signs", 
+					bullets: analysis.warningSignsBulletPoints, 
+					bulletColor: .red
+				)
+			}
+		}
+	}
+}
+
+struct CatJokesContentView: View {
+	let jokes: CatJokes
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			ForEach(Array(jokes.jokes.enumerated()), id: \.offset) { index, joke in
+				HStack(alignment: .top, spacing: 8) {
+					Text("😸")
 						.font(DS.Typography.bodyFont())
-						.fontWeight(.medium)
-						.foregroundColor(.red)
+						.frame(width: 16, alignment: .leading)
+					
+					Text(joke)
+						.font(DS.Typography.bodyFont())
+						.fixedSize(horizontal: false, vertical: true)
+				}
+			}
+		}
+	}
+}
+
+struct BulletPointSection: View {
+	let label: String
+	let bullets: [String]
+	let bulletColor: Color
+	
+	init(label: String, bullets: [String], bulletColor: Color = .primary) {
+		self.label = label
+		self.bullets = bullets
+		self.bulletColor = bulletColor
+	}
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 4) {
+			Text(label)
+				.font(.caption)
+				.fontWeight(.medium)
+				.foregroundColor(.secondary)
+			
+			ForEach(Array(bullets.enumerated()), id: \.offset) { index, bullet in
+				HStack(alignment: .top, spacing: 6) {
+					Text("•")
+						.font(DS.Typography.bodyFont())
+						.foregroundColor(bulletColor)
+						.frame(width: 12, alignment: .leading)
+					
+					Text(bullet)
+						.font(DS.Typography.bodyFont())
+						.foregroundColor(bulletColor)
+						.fixedSize(horizontal: false, vertical: true)
 				}
 			}
 		}

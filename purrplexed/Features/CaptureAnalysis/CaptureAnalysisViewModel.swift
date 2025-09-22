@@ -41,6 +41,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var bodyLanguageAnalysis: BodyLanguageAnalysis? = nil
 	@Published var contextualEmotion: ContextualEmotion? = nil
 	@Published var ownerAdvice: OwnerAdvice? = nil
+	@Published var catJokes: CatJokes? = nil
 	@Published var isUploadingPhoto: Bool = false
 	@Published var isAnalyzing: Bool = false
 	@Published var uploadedFileUri: String? = nil
@@ -75,6 +76,12 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		Task { [weak self] in
 			guard let self else { return }
 			guard await ensurePermissionFlow() else { return }
+			
+			// Clear previous analysis results when new photo is captured
+			await MainActor.run {
+				self.resetParallelAnalysisResults()
+			}
+			
 			self.transition(.capturing)
 			Haptics.impact(.light)
 			do {
@@ -95,6 +102,11 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	func didPickPhoto(_ data: Data) {
 		Task { [weak self] in
 			guard let self else { return }
+			// Clear previous analysis results when new photo is loaded
+			await MainActor.run {
+				self.resetParallelAnalysisResults()
+			}
+			
 			// Compress picked photo for faster analysis
 			self.thumbnailData = await self.compressImageForAnalysis(data)
 			self.state = .idle
@@ -161,6 +173,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		bodyLanguageAnalysis = nil
 		contextualEmotion = nil
 		ownerAdvice = nil
+		catJokes = nil
 		isUploadingPhoto = false
 		isAnalyzing = false
 		uploadedFileUri = nil
@@ -284,28 +297,15 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			
 		case .ownerAdviceCompleted(let result):
 			ownerAdvice = result
-			progress = 1.0
+			progress = max(progress, 0.8)
 			Log.analysis.info("Owner advice completed")
+			checkAnalysisCompletion()
 			
-			// Check if all analyses are complete
-			if emotionSummary != nil && bodyLanguageAnalysis != nil && 
-			   contextualEmotion != nil && ownerAdvice != nil {
-				Haptics.success()
-				// Create a combined result for the UI
-				let combinedText = """
-					Emotion: \(emotionSummary?.description ?? "")
-					
-					Body Language: \(bodyLanguageAnalysis?.overallMood ?? "")
-					
-					Context: \(contextualEmotion?.emotionalMeaning ?? "")
-					
-					Advice: \(ownerAdvice?.immediateActions ?? "")
-					"""
-				let result = AnalysisResult(translatedText: combinedText, confidence: 0.9, funFact: nil)
-				transition(.ready(result: result))
-				isAnalyzing = false
-				analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
-			}
+		case .catJokesCompleted(let result):
+			catJokes = result
+			progress = 1.0
+			Log.analysis.info("Cat jokes completed")
+			checkAnalysisCompletion()
 			
 		case .failed(let message):
 			transition(.error(message: message))
@@ -313,6 +313,37 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			Haptics.error()
 			analytics.track(event: "parallel_analysis_partial_failure", properties: ["message": message])
 			Log.analysis.error("Parallel analysis partial failure: \(message, privacy: .public)")
+		}
+	}
+	
+	private func checkAnalysisCompletion() {
+		// Check if all core analyses are complete
+		let coreAnalysesComplete = emotionSummary != nil && bodyLanguageAnalysis != nil && 
+								   contextualEmotion != nil && ownerAdvice != nil
+		
+		Log.analysis.info("Analysis completion check: core=\(coreAnalysesComplete)")
+		Log.analysis.info("Analysis status: emotion=\(self.emotionSummary != nil), body=\(self.bodyLanguageAnalysis != nil), context=\(self.contextualEmotion != nil), advice=\(self.ownerAdvice != nil), jokes=\(self.catJokes != nil)")
+		
+		// Complete as soon as all core analyses are done - cat jokes are bonus content
+		if coreAnalysesComplete {
+			progress = 1.0
+			Haptics.success()
+			Log.analysis.info("Core analyses complete - finishing (cat jokes optional)")
+			
+			// Create a combined result for the UI (for backward compatibility)
+			let combinedText = """
+				Emotion: \(emotionSummary?.description ?? "")
+				
+				Body Language: \(bodyLanguageAnalysis?.overallMood ?? "")
+				
+				Context: \(contextualEmotion?.emotionalMeaning.joined(separator: "; ") ?? "")
+				
+				Advice: \(ownerAdvice?.immediateActionsBulletPoints.joined(separator: "; ") ?? "")
+				"""
+			let result = AnalysisResult(translatedText: combinedText, confidence: 0.9, funFact: nil)
+			transition(.ready(result: result))
+			isAnalyzing = false
+			analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
 		}
 	}
 

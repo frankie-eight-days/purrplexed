@@ -32,6 +32,15 @@ struct EmotionSummary: Sendable, Equatable, Codable {
 	let emotion: String
 	let intensity: String
 	let description: String
+	let emoji: String
+	let moodType: String
+	let warningMessage: String?
+	
+	private enum CodingKeys: String, CodingKey {
+		case emotion, intensity, description, emoji
+		case moodType = "mood_type"
+		case warningMessage = "warning_message"
+	}
 }
 
 struct BodyLanguageAnalysis: Sendable, Equatable, Codable {
@@ -39,18 +48,19 @@ struct BodyLanguageAnalysis: Sendable, Equatable, Codable {
 	let ears: String
 	let tail: String
 	let eyes: String
+	let whiskers: String
 	let overallMood: String
 	
 	private enum CodingKeys: String, CodingKey {
-		case posture, ears, tail, eyes
+		case posture, ears, tail, eyes, whiskers
 		case overallMood = "overall_mood"
 	}
 }
 
 struct ContextualEmotion: Sendable, Equatable, Codable {
-	let contextClues: String
-	let environmentalFactors: String
-	let emotionalMeaning: String
+	let contextClues: [String]
+	let environmentalFactors: [String]
+	let emotionalMeaning: [String]
 	
 	private enum CodingKeys: String, CodingKey {
 		case contextClues = "context_clues"
@@ -60,9 +70,9 @@ struct ContextualEmotion: Sendable, Equatable, Codable {
 }
 
 struct OwnerAdvice: Sendable, Equatable, Codable {
-	let immediateActions: String
-	let longTermSuggestions: String
-	let warningSigns: String
+	let immediateActions: [String]
+	let longTermSuggestions: [String]
+	let warningSigns: [String]
 	
 	private enum CodingKeys: String, CodingKey {
 		case immediateActions = "immediate_actions"
@@ -70,11 +80,33 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 		case warningSigns = "warning_signs"
 	}
 	
+	/// Returns immediate actions formatted as bullet points
+	var immediateActionsBulletPoints: [String] {
+		return immediateActions.filter { !$0.isEmpty }
+	}
+	
+	/// Returns long-term suggestions formatted as bullet points
+	var longTermSuggestionsBulletPoints: [String] {
+		return longTermSuggestions.filter { !$0.isEmpty }
+	}
+	
+	/// Returns warning signs formatted as bullet points
+	var warningSignsBulletPoints: [String] {
+		return warningSigns.filter { !$0.isEmpty }
+	}
+	
 	// Memberwise initializer for mocks and direct construction
-	init(immediateActions: String, longTermSuggestions: String, warningSigns: String) {
+	init(immediateActions: [String], longTermSuggestions: [String], warningSigns: [String]) {
 		self.immediateActions = immediateActions
 		self.longTermSuggestions = longTermSuggestions
 		self.warningSigns = warningSigns
+	}
+	
+	// Legacy initializer for backward compatibility with string inputs
+	init(immediateActions: String, longTermSuggestions: String, warningSigns: String) {
+		self.immediateActions = [immediateActions]
+		self.longTermSuggestions = [longTermSuggestions]
+		self.warningSigns = [warningSigns]
 	}
 	
 	init(from decoder: Decoder) throws {
@@ -82,32 +114,35 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 		
 		// Handle immediate_actions - can be string or array
 		if let actionsArray = try? container.decode([String].self, forKey: .immediateActions) {
-			self.immediateActions = actionsArray.joined(separator: "; ")
+			self.immediateActions = actionsArray
+		} else if let actionsString = try? container.decode(String.self, forKey: .immediateActions) {
+			self.immediateActions = [actionsString]
 		} else {
-			self.immediateActions = try container.decode(String.self, forKey: .immediateActions)
+			self.immediateActions = []
 		}
 		
 		// Handle long_term_suggestions - can be string or array
 		if let suggestionsArray = try? container.decode([String].self, forKey: .longTermSuggestions) {
-			self.longTermSuggestions = suggestionsArray.joined(separator: "; ")
+			self.longTermSuggestions = suggestionsArray
+		} else if let suggestionsString = try? container.decode(String.self, forKey: .longTermSuggestions) {
+			self.longTermSuggestions = [suggestionsString]
 		} else {
-			self.longTermSuggestions = try container.decode(String.self, forKey: .longTermSuggestions)
+			self.longTermSuggestions = []
 		}
 		
 		// Handle warning_signs - can be string or array
 		if let warningsArray = try? container.decode([String].self, forKey: .warningSigns) {
-			self.warningSigns = warningsArray.joined(separator: "; ")
+			self.warningSigns = warningsArray
+		} else if let warningsString = try? container.decode(String.self, forKey: .warningSigns) {
+			self.warningSigns = [warningsString]
 		} else {
-			self.warningSigns = try container.decode(String.self, forKey: .warningSigns)
+			self.warningSigns = []
 		}
 	}
-	
-	func encode(to encoder: Encoder) throws {
-		var container = encoder.container(keyedBy: CodingKeys.self)
-		try container.encode(immediateActions, forKey: .immediateActions)
-		try container.encode(longTermSuggestions, forKey: .longTermSuggestions)
-		try container.encode(warningSigns, forKey: .warningSigns)
-	}
+}
+
+struct CatJokes: Sendable, Equatable, Codable {
+	let jokes: [String]
 }
 
 struct ParallelAnalysisResult: Sendable, Equatable {
@@ -115,6 +150,7 @@ struct ParallelAnalysisResult: Sendable, Equatable {
 	let bodyLanguage: BodyLanguageAnalysis?
 	let contextualEmotion: ContextualEmotion?
 	let ownerAdvice: OwnerAdvice?
+	let catJokes: CatJokes?
 }
 
 enum AnalysisStatus: Sendable, Equatable {
@@ -142,6 +178,7 @@ protocol ParallelAnalysisService: AnyObject, Sendable {
 	func analyzeBodyLanguage(fileUri: String) async throws -> BodyLanguageAnalysis
 	func analyzeContextualEmotion(fileUri: String) async throws -> ContextualEmotion
 	func analyzeOwnerAdvice(fileUri: String) async throws -> OwnerAdvice
+	func analyzeCatJokes(fileUri: String) async throws -> CatJokes
 	func analyzeParallel(photo: CapturedPhoto) async throws -> AsyncStream<ParallelAnalysisUpdate>
 }
 
@@ -152,6 +189,7 @@ enum ParallelAnalysisUpdate: Sendable, Equatable {
 	case bodyLanguageCompleted(BodyLanguageAnalysis)
 	case contextualEmotionCompleted(ContextualEmotion)
 	case ownerAdviceCompleted(OwnerAdvice)
+	case catJokesCompleted(CatJokes)
 	case failed(message: String)
 }
 

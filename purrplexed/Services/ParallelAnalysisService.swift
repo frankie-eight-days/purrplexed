@@ -18,12 +18,14 @@ struct SingleAnalysisResponse: Decodable {
 	let bodyLanguage: BodyLanguageAnalysis?
 	let contextualEmotion: ContextualEmotion?
 	let ownerAdvice: OwnerAdvice?
+	let catJokes: CatJokes?
 	
 	private enum CodingKeys: String, CodingKey {
 		case emotionSummary = "emotion_summary"
 		case bodyLanguage = "body_language" 
 		case contextualEmotion = "contextual_emotion"
 		case ownerAdvice = "owner_advice"
+		case catJokes = "cat_jokes"
 	}
 	
 	init(from decoder: Decoder) throws {
@@ -49,6 +51,9 @@ struct SingleAnalysisResponse: Decodable {
 		
 		// Handle owner_advice - single object expected
 		self.ownerAdvice = try? container.decode(OwnerAdvice.self, forKey: .ownerAdvice)
+		
+		// Handle cat_jokes - single object expected
+		self.catJokes = try? container.decode(CatJokes.self, forKey: .catJokes)
 	}
 }
 
@@ -150,6 +155,14 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		return result
 	}
 	
+	func analyzeCatJokes(fileUri: String) async throws -> CatJokes {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "cat_jokes")
+		guard let result = response.catJokes else {
+			throw AnalysisError.invalidResponse("Missing cat_jokes in response")
+		}
+		return result
+	}
+	
 	// MARK: - Parallel Analysis
 	
 	func analyzeParallel(photo: CapturedPhoto) async throws -> AsyncStream<ParallelAnalysisUpdate> {
@@ -163,19 +176,18 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 					let fileUri = try await uploadPhoto(photo)
 					continuation.yield(.uploadCompleted(fileUri: fileUri))
 					
-					// Step 2: Run parallel analyses
+					// Step 2: First, get emotion summary to determine mood-based analysis
+					var emotionSummary: EmotionSummary?
+					do {
+						emotionSummary = try await self.analyzeEmotionSummary(fileUri: fileUri)
+						continuation.yield(.emotionSummaryCompleted(emotionSummary!))
+					} catch {
+						Log.network.error("Emotion summary analysis failed: \(error.localizedDescription)")
+						continuation.yield(.failed(message: "Emotion analysis failed"))
+					}
+					
+					// Step 3: Run remaining analyses in parallel, including conditional mood-based analysis
 					await withTaskGroup(of: Void.self) { group in
-						// Emotion Summary
-						group.addTask {
-							do {
-								let result = try await self.analyzeEmotionSummary(fileUri: fileUri)
-								continuation.yield(.emotionSummaryCompleted(result))
-							} catch {
-								Log.network.error("Emotion summary analysis failed: \(error.localizedDescription)")
-								continuation.yield(.failed(message: "Emotion analysis failed"))
-							}
-						}
-						
 						// Body Language  
 						group.addTask {
 							do {
@@ -206,6 +218,19 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 							} catch {
 								Log.network.error("Owner advice analysis failed: \(error.localizedDescription)")
 								continuation.yield(.failed(message: "Owner advice analysis failed"))
+							}
+						}
+						
+						// Cat Jokes - only if mood is happy
+						if let emotionSummary = emotionSummary, emotionSummary.moodType.lowercased() == "happy" {
+							group.addTask {
+								do {
+									let result = try await self.analyzeCatJokes(fileUri: fileUri)
+									continuation.yield(.catJokesCompleted(result))
+								} catch {
+									Log.network.error("Cat jokes analysis failed: \(error.localizedDescription)")
+									continuation.yield(.failed(message: "Cat jokes analysis failed"))
+								}
 							}
 						}
 					}
