@@ -24,6 +24,7 @@ struct CaptureAnalysisView: View {
 			VStack {
 				photoPickerButton
 				catFocusButtonView
+				noCatDetectedBanner
 				analyzeButton
 				analysisResultsView
 				Spacer()
@@ -116,6 +117,48 @@ struct CaptureAnalysisView: View {
 		}
 	}
 	
+	private var noCatDetectedBanner: some View {
+		Group {
+			if let message = viewModel.noCatDetectedMessage {
+				VStack(alignment: .leading, spacing: 8) {
+					HStack(spacing: 12) {
+						Image(systemName: "exclamationmark.triangle.fill")
+							.foregroundColor(.orange)
+						Text(message)
+							.font(DS.Typography.captionFont())
+							.foregroundColor(.primary)
+					}
+					if viewModel.catDetectionBlocking {
+						HStack(spacing: 12) {
+							Button("Choose Different Photo") {
+								showChoice = true
+							}
+							.buttonStyle(.borderedProminent)
+							.controlSize(.small)
+							Button("Retry Detection") {
+								viewModel.retryCatDetection()
+							}
+							.buttonStyle(.bordered)
+							.controlSize(.small)
+							Spacer(minLength: 8)
+							Button("Proceed Anyway") {
+								viewModel.overrideCatDetectionRequirement()
+							}
+							.buttonStyle(.bordered)
+							.controlSize(.mini)
+						}
+					}
+				}
+				.padding(.vertical, 12)
+				.padding(.horizontal, 16)
+				.background(Color.orange.opacity(0.15))
+				.clipShape(RoundedRectangle(cornerRadius: 12))
+				.padding(.horizontal)
+				.transition(.move(edge: .top).combined(with: .opacity))
+			}
+		}
+	}
+	
 	private var analyzeButton: some View {
 		Button(action: { viewModel.didTapAnalyze() }) {
 			if viewModel.isAnalyzing {
@@ -131,7 +174,7 @@ struct CaptureAnalysisView: View {
 			}
 		}
 		.buttonStyle(.borderedProminent)
-		.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing)
+		.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing || viewModel.catDetectionBlocking)
 		.padding(.horizontal)
 	}
 	

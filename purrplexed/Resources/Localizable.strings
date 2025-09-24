@@ -24,3 +24,5 @@
 "camera_unavailable_title" = "Camera Unavailable";
 "camera_unavailable_message" = "This device does not have a camera. Please choose from your library.";
 "action_analyze" = "Analyze";
+"error_no_cat_detected" = "No cat detected in this photo. Try a different picture with your kitty front and center.";
+"error_cat_detection_failed" = "We couldn’t check for a cat. Please try again.";

@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 import UIKit
 import Vision
+import ImageIO
 
 @MainActor
 final class CaptureAnalysisViewModel: ObservableObject {
@@ -49,8 +50,21 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	// Cat detection state
 	@Published var catDetectionResult: CatDetectionResult? = nil
 	@Published var isDetectingCat: Bool = false
+	@Published var noCatDetectedMessage: String? = nil
+	@Published var catDetectionBlocking: Bool = false
 	// Fixed frame height - 20% larger than original (280 * 1.2 = 336)
 	let frameHeight: CGFloat = 336
+	
+	private let minCatConfidence: Double = 0.45
+	private let catLabelKeywords: [String] = [
+		"cat",
+		"kitten",
+		"kitty",
+		"tabby",
+		"feline",
+		"domestic",
+		"house"
+	]
 	
 	// Usage tracking
 	@Published private(set) var usedCount: Int = 0
@@ -109,6 +123,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			// Clear previous analysis results when new photo is captured
 			await MainActor.run {
 				self.resetParallelAnalysisResults()
+				self.noCatDetectedMessage = nil
+				self.catDetectionBlocking = false
 			}
 			
 			self.transition(.capturing)
@@ -134,6 +150,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			// Clear previous analysis results when new photo is loaded
 			await MainActor.run {
 				self.resetParallelAnalysisResults()
+				self.noCatDetectedMessage = nil
+				self.catDetectionBlocking = false
 			}
 			
 			// Compress picked photo for faster analysis
@@ -149,6 +167,10 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		Task { [weak self] in
 			guard let self else { return }
 			guard let data = self.thumbnailData else { Log.analysis.warning("Analyze tapped with no image"); return }
+			
+			guard self.validateCatPresence() else {
+				return
+			}
 			
 			// Check usage limits first
 			guard await self.canStartAnalysis() else {
@@ -167,6 +189,10 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		Task { [weak self] in
 			guard let self else { return }
 			guard let data = self.thumbnailData else { Log.analysis.warning("Analyze tapped with no image"); return }
+			
+			guard self.validateCatPresence() else {
+				return
+			}
 			
 			// Check usage limits first
 			guard await self.canStartAnalysis() else {
@@ -514,6 +540,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		guard let data = thumbnailData else { return }
 		
 		isDetectingCat = true
+		noCatDetectedMessage = nil
+		catDetectionBlocking = false
 		Log.analysis.info("Starting cat detection")
 		
 		do {
@@ -525,10 +553,15 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				Haptics.impact(.light)
 			} else {
 				Log.analysis.info("No cat detected in image")
-				// Frame height stays fixed regardless
+				self.noCatDetectedMessage = NSLocalizedString("error_no_cat_detected", comment: "")
+				self.catDetectionBlocking = true
+				Haptics.error()
 			}
 		} catch {
 			Log.analysis.error("Cat detection failed: \(error.localizedDescription, privacy: .public)")
+			self.noCatDetectedMessage = NSLocalizedString("error_cat_detection_failed", comment: "")
+			self.catDetectionBlocking = false
+			Haptics.error()
 			// Frame height stays fixed regardless
 		}
 		
@@ -560,6 +593,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				return
 			}
 			
+			let orientation = CGImagePropertyOrientation(image.imageOrientation)
 			let request = VNRecognizeAnimalsRequest { request, error in
 				guard !isResumed else { return }
 				
@@ -575,23 +609,35 @@ final class CaptureAnalysisViewModel: ObservableObject {
 					return
 				}
 				
-				// Find the cat with highest confidence
 				var bestCatObservation: VNRecognizedObjectObservation?
 				var bestConfidence: Double = 0
 				
 				for observation in observations {
-					for label in observation.labels {
-						if label.identifier.lowercased() == "cat" && 
-						   Double(label.confidence) > 0.7 &&
-						   Double(label.confidence) > bestConfidence {
-							bestCatObservation = observation
-							bestConfidence = Double(label.confidence)
-						}
+					let labels: [VNClassificationObservation] = observation.labels
+					let matched = labels.contains { label in
+						self.matchesCatLabel(label.identifier)
+					}
+					guard matched else { continue }
+					let candidateConfidence = Double(observation.confidence)
+					let bestLabelConfidence = labels.map { Double($0.confidence) }.max() ?? candidateConfidence
+					let effectiveConfidence = max(candidateConfidence, bestLabelConfidence)
+					if effectiveConfidence > bestConfidence {
+						bestCatObservation = observation
+						bestConfidence = effectiveConfidence
 					}
 				}
 				
+				if observations.isEmpty {
+					Log.analysis.info("Vision did not return any animal observations")
+				} else {
+					let debugLabels = observations
+						.flatMap { obs in obs.labels.map { "\($0.identifier):\(String(format: "%.2f", $0.confidence))" } }
+						.joined(separator: ", ")
+					Log.analysis.info("Vision animal labels: \(debugLabels, privacy: .public)")
+				}
+				
 				isResumed = true
-				if let catObservation = bestCatObservation {
+				if let catObservation = bestCatObservation, bestConfidence >= self.minCatConfidence {
 					let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
 					let boundingBox = self.convertVisionBoundingBox(
 						catObservation.boundingBox,
@@ -609,7 +655,15 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				}
 			}
 			
-			let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+			if let latestRevision = VNRecognizeAnimalsRequest.supportedRevisions.max() {
+				request.revision = latestRevision
+			}
+			if #unavailable(iOS 17.0) {
+				request.usesCPUOnly = false
+			}
+			request.preferBackgroundProcessing = true
+			
+			let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
 			do {
 				try handler.perform([request])
 			} catch {
@@ -658,6 +712,31 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		
 		return CGRect(x: x, y: y, width: width, height: height)
 	}
+	
+	private func validateCatPresence() -> Bool {
+		if catDetectionBlocking {
+			Haptics.error()
+			return false
+		}
+		return true
+	}
+	
+	func retryCatDetection() {
+		Task { [weak self] in
+			guard let self else { return }
+			guard self.thumbnailData != nil else { return }
+			await self.detectCatInCurrentPhoto()
+		}
+	}
+	
+	func overrideCatDetectionRequirement() {
+		catDetectionBlocking = false
+	}
+	
+	private func matchesCatLabel(_ identifier: String) -> Bool {
+		let normalized = identifier.lowercased()
+        return catLabelKeywords.contains(where: { normalized.contains($0) })
+	}
 }
 
 // MARK: - Cat Detection Models
@@ -678,6 +757,23 @@ enum CatDetectionError: Error, LocalizedError {
 			return "Invalid image data"
 		case .visionError(let error):
 			return "Vision framework error: \(error.localizedDescription)"
+		}
+	}
+}
+
+private extension CGImagePropertyOrientation {
+	init(_ orientation: UIImage.Orientation) {
+		switch orientation {
+		case .up: self = .up
+		case .upMirrored: self = .upMirrored
+		case .down: self = .down
+		case .downMirrored: self = .downMirrored
+		case .left: self = .left
+		case .leftMirrored: self = .leftMirrored
+		case .right: self = .right
+		case .rightMirrored: self = .rightMirrored
+		@unknown default:
+			self = .up
 		}
 	}
 }

@@ -19,6 +19,7 @@ enum DS {
 		static func titleFont() -> Font { .system(.title2, design: .rounded).weight(.semibold) }
 		static func bodyFont() -> Font { .system(.body, design: .rounded) }
 		static func buttonFont() -> Font { .system(.headline, design: .rounded) }
+		static func captionFont() -> Font { .system(.caption, design: .rounded) }
 	}
 	
 	enum Spacing {
