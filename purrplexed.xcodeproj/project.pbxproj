@@ -24,9 +24,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8733CCC22E7FC2B500C19A96 /* purrplexed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = purrplexed.app; path = Purrplexed.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		8733CCCF2E7FC2B600C19A96 /* purrplexedTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = purrplexedTests.xctest; path = Purrplexed.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		8733CCD92E7FC2B600C19A96 /* purrplexedUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = purrplexedUITests.xctest; path = Purrplexed.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8733CCC22E7FC2B500C19A96 /* Purrplexed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Purrplexed.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8733CCCF2E7FC2B600C19A96 /* Purrplexed.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Purrplexed.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8733CCD92E7FC2B600C19A96 /* Purrplexed.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Purrplexed.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -85,9 +85,9 @@
 		8733CCC32E7FC2B500C19A96 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8733CCC22E7FC2B500C19A96 /* purrplexed.app */,
-				8733CCCF2E7FC2B600C19A96 /* purrplexedTests.xctest */,
-				8733CCD92E7FC2B600C19A96 /* purrplexedUITests.xctest */,
+				8733CCC22E7FC2B500C19A96 /* Purrplexed.app */,
+				8733CCCF2E7FC2B600C19A96 /* Purrplexed.xctest */,
+				8733CCD92E7FC2B600C19A96 /* Purrplexed.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -114,7 +114,7 @@
 			packageProductDependencies = (
 			);
 			productName = purrplexed;
-			productReference = 8733CCC22E7FC2B500C19A96 /* purrplexed.app */;
+			productReference = 8733CCC22E7FC2B500C19A96 /* Purrplexed.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8733CCCE2E7FC2B600C19A96 /* purrplexedTests */ = {
@@ -137,7 +137,7 @@
 			packageProductDependencies = (
 			);
 			productName = purrplexedTests;
-			productReference = 8733CCCF2E7FC2B600C19A96 /* purrplexedTests.xctest */;
+			productReference = 8733CCCF2E7FC2B600C19A96 /* Purrplexed.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		8733CCD82E7FC2B600C19A96 /* purrplexedUITests */ = {
@@ -160,7 +160,7 @@
 			packageProductDependencies = (
 			);
 			productName = purrplexedUITests;
-			productReference = 8733CCD92E7FC2B600C19A96 /* purrplexedUITests.xctest */;
+			productReference = 8733CCD92E7FC2B600C19A96 /* Purrplexed.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -397,7 +397,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = purrplexed/purrplexedDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = W7W8XZDTBJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -413,7 +413,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = donezo.purrplexed;
+				PRODUCT_BUNDLE_IDENTIFIER = com.frank.walsh.purrplexed;
 				PRODUCT_NAME = Purrplexed;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -428,7 +428,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = purrplexed/purrplexed.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = W7W8XZDTBJ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -444,7 +444,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = donezo.purrplexed;
+				PRODUCT_BUNDLE_IDENTIFIER = com.frank.walsh.purrplexed;
 				PRODUCT_NAME = Purrplexed;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
