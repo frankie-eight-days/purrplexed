@@ -609,7 +609,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 					return
 				}
 				
-				var bestCatObservation: VNRecognizedObjectObservation?
+				var matchedObservations: [VNRecognizedObjectObservation] = []
 				var bestConfidence: Double = 0
 				
 				for observation in observations {
@@ -618,11 +618,11 @@ final class CaptureAnalysisViewModel: ObservableObject {
 						self.matchesCatLabel(label.identifier)
 					}
 					guard matched else { continue }
+					matchedObservations.append(observation)
 					let candidateConfidence = Double(observation.confidence)
 					let bestLabelConfidence = labels.map { Double($0.confidence) }.max() ?? candidateConfidence
 					let effectiveConfidence = max(candidateConfidence, bestLabelConfidence)
 					if effectiveConfidence > bestConfidence {
-						bestCatObservation = observation
 						bestConfidence = effectiveConfidence
 					}
 				}
@@ -637,10 +637,14 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				}
 				
 				isResumed = true
-				if let catObservation = bestCatObservation, bestConfidence >= self.minCatConfidence {
+				if !matchedObservations.isEmpty, bestConfidence >= self.minCatConfidence {
+					let unionRect = matchedObservations
+						.map { $0.boundingBox }
+						.reduce(matchedObservations[0].boundingBox) { $0.union($1) }
+					let clampedUnion = self.clampNormalizedRect(unionRect)
 					let imageSize = CGSize(width: cgImage.width, height: cgImage.height)
 					let boundingBox = self.convertVisionBoundingBox(
-						catObservation.boundingBox,
+						clampedUnion,
 						to: imageSize
 					)
 					
@@ -735,7 +739,17 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	
 	private func matchesCatLabel(_ identifier: String) -> Bool {
 		let normalized = identifier.lowercased()
-        return catLabelKeywords.contains(where: { normalized.contains($0) })
+		return catLabelKeywords.contains(where: { normalized.contains($0) })
+	}
+	
+	private func clampNormalizedRect(_ rect: CGRect) -> CGRect {
+		let minX = max(0, rect.minX)
+		let minY = max(0, rect.minY)
+		let maxX = min(1, rect.maxX)
+		let maxY = min(1, rect.maxY)
+		let width = max(0, maxX - minX)
+		let height = max(0, maxY - minY)
+		return CGRect(x: minX, y: minY, width: width, height: height)
 	}
 }
 

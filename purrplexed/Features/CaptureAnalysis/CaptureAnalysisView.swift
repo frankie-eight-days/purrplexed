@@ -10,6 +10,7 @@ import UIKit
 
 struct CaptureAnalysisView: View {
 	@ObservedObject var viewModel: CaptureAnalysisViewModel
+	@Environment(\.colorScheme) private var colorScheme
 	@State private var showChoice = false
 	@State private var showLibrary = false
 	@State private var showCamera = false
@@ -120,36 +121,13 @@ struct CaptureAnalysisView: View {
 	private var noCatDetectedBanner: some View {
 		Group {
 			if let message = viewModel.noCatDetectedMessage {
-				VStack(alignment: .leading, spacing: 8) {
-					HStack(spacing: 12) {
-						Image(systemName: "exclamationmark.triangle.fill")
-							.foregroundColor(.orange)
-						Text(message)
-							.font(DS.Typography.captionFont())
-							.foregroundColor(.primary)
-					}
+				VStack(alignment: .leading, spacing: 12) {
+					bannerHeader(message: message)
 					if viewModel.catDetectionBlocking {
-						HStack(spacing: 12) {
-							Button("Choose Different Photo") {
-								showChoice = true
-							}
-							.buttonStyle(.borderedProminent)
-							.controlSize(.small)
-							Button("Retry Detection") {
-								viewModel.retryCatDetection()
-							}
-							.buttonStyle(.bordered)
-							.controlSize(.small)
-							Spacer(minLength: 8)
-							Button("Proceed Anyway") {
-								viewModel.overrideCatDetectionRequirement()
-							}
-							.buttonStyle(.bordered)
-							.controlSize(.mini)
-						}
+						bannerActions
 					}
 				}
-				.padding(.vertical, 12)
+				.padding(.vertical, 14)
 				.padding(.horizontal, 16)
 				.background(Color.orange.opacity(0.15))
 				.clipShape(RoundedRectangle(cornerRadius: 12))
@@ -157,6 +135,76 @@ struct CaptureAnalysisView: View {
 				.transition(.move(edge: .top).combined(with: .opacity))
 			}
 		}
+	}
+	
+	private func bannerHeader(message: String) -> some View {
+		HStack(spacing: 12) {
+			Image(systemName: "exclamationmark.triangle.fill")
+				.foregroundColor(.orange)
+			Text(message)
+				.font(DS.Typography.captionFont())
+				.foregroundColor(.primary)
+		}
+	}
+	
+	private var bannerActions: some View {
+		HStack(spacing: 10) {
+			bannerActionButton(title: "Choose Different Photo", style: .prominent) {
+				showChoice = true
+			}
+			bannerActionButton(title: "Retry Detection", style: .neutral) {
+				viewModel.retryCatDetection()
+			}
+			bannerActionButton(title: "Proceed Anyway", style: .quiet) {
+				viewModel.overrideCatDetectionRequirement()
+			}
+		}
+	}
+	
+	private enum BannerButtonStyle {
+		case prominent
+		case neutral
+		case quiet
+	}
+	
+	private func bannerActionButton(title: String, style: BannerButtonStyle, action: @escaping () -> Void) -> some View {
+		let background: Color
+		let foreground: Color
+		let border: Color
+		switch style {
+		case .prominent:
+			background = DS.Color.accent
+			foreground = .white
+			border = DS.Color.accent.opacity(0.01)
+		case .neutral:
+			let opacity = colorScheme == .dark ? 0.32 : 0.22
+			background = Color.orange.opacity(opacity)
+			foreground = Color.orange
+			border = Color.orange.opacity(colorScheme == .dark ? 0.45 : 0.3)
+		case .quiet:
+			background = Color(.secondarySystemBackground)
+			foreground = .primary
+			border = Color(.separator).opacity(colorScheme == .dark ? 0.25 : 0.15)
+		}
+		
+		return Button(action: action) {
+			Text(title)
+				.font(DS.Typography.captionFont())
+				.fontWeight(.semibold)
+				.lineLimit(1)
+				.minimumScaleFactor(0.8)
+				.frame(maxWidth: .infinity)
+				.padding(.vertical, 11)
+				.padding(.horizontal, 10)
+		}
+		.buttonStyle(.plain)
+		.background(background)
+		.foregroundColor(foreground)
+		.clipShape(Capsule())
+		.overlay(
+			Capsule()
+				.stroke(border, lineWidth: 1)
+		)
 	}
 	
 	private var analyzeButton: some View {
@@ -639,6 +687,24 @@ struct AnimatedImageView: View {
 			return ImageTransform(scale: 1.0, offset: .zero)
 		}
 		
+		let boundingWidth = catResult.boundingBox.width
+		let boundingHeight = catResult.boundingBox.height
+		let imagePixelWidth = max(catResult.imageSize.width, 1)
+		let imagePixelHeight = max(catResult.imageSize.height, 1)
+		let widthRatio = boundingWidth / imagePixelWidth
+		let heightRatio = boundingHeight / imagePixelHeight
+		let boundingAspect = boundingWidth / max(boundingHeight, 1)
+		let containerAspect = containerSize.width / max(containerSize.height, 1)
+		
+		// Skip zoom when detection already fills most of the image or aspect ratio is extreme
+		if widthRatio > 0.85 && heightRatio > 0.6 {
+			return ImageTransform(scale: 1.0, offset: .zero)
+		}
+		let aspectRatioDifference = boundingAspect / max(containerAspect, 0.01)
+		if aspectRatioDifference < 0.45 || aspectRatioDifference > 1.8 {
+			return ImageTransform(scale: 1.0, offset: .zero)
+		}
+		
 		// Use the image's point size (not pixel size)
 		let imageSize = image.size
 		
@@ -678,8 +744,12 @@ struct AnimatedImageView: View {
 		let additionalScale = min(additionalScaleX, additionalScaleY)
 		
 		// Cap the zoom at a reasonable level
-		let maxZoom: CGFloat = 2.5
+		let maxZoom: CGFloat = 1.8
 		let clampedScale = min(additionalScale, maxZoom)
+		
+		if clampedScale <= 1.05 {
+			return ImageTransform(scale: 1.0, offset: .zero)
+		}
 		
 		// Calculate offset to center the cat in the frame
 		// Since scaledToFill already centers the image, we need to calculate the offset
