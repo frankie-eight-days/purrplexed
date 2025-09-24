@@ -15,7 +15,6 @@ struct CaptureAnalysisView: View {
 	@State private var showCamera = false
 	@State private var showNoCameraAlert = false
 	@State private var showPermissionDeniedAlert = false
-	@State private var showShareCard = false
 	@State private var randomCatEmoji = "🐈"
 	
 	private let catEmojis = ["🐈", "😹", "😻", "😼", "😽", "🙀", "😿", "😾", "🐅", "🐆"]
@@ -90,9 +89,6 @@ struct CaptureAnalysisView: View {
 		} message: {
 			Text("Purrplexed needs camera access to take photos. Please enable camera permissions in Settings → Privacy & Security → Camera → Purrplexed")
 		}
-		.sheet(isPresented: $showShareCard) {
-			ShareCardView(viewModel: viewModel.createShareCardViewModel())
-		}
 	}
 	
 	private var catFocusButtonView: some View {
@@ -121,47 +117,22 @@ struct CaptureAnalysisView: View {
 	}
 	
 	private var analyzeButton: some View {
-		HStack(spacing: DS.Spacing.s) {
-			// Analyze button - shrinks when share button appears
-			Button(action: { viewModel.didTapAnalyze() }) {
-				if viewModel.isAnalyzing {
-					ProgressView()
-						.progressViewStyle(CircularProgressViewStyle(tint: .white))
-						.frame(maxWidth: .infinity)
-						.padding(.vertical, 14)
-				} else {
-					Text(Localized("action_analyze"))
-						.font(DS.Typography.buttonFont())
-						.frame(maxWidth: .infinity)
-						.padding(.vertical, 14)
-				}
-			}
-			.buttonStyle(.borderedProminent)
-			.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing)
-			
-			// Share button - appears after analysis results are available
-			if shouldShowShareButton {
-				Button(action: { showShareCard = true }) {
-					Image(systemName: "square.and.arrow.up")
-						.font(DS.Typography.buttonFont())
-						.frame(minWidth: 50)
-						.padding(.vertical, 14)
-				}
-				.buttonStyle(.bordered)
-				.transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+		Button(action: { viewModel.didTapAnalyze() }) {
+			if viewModel.isAnalyzing {
+				ProgressView()
+					.progressViewStyle(CircularProgressViewStyle(tint: .white))
+					.frame(maxWidth: .infinity)
+					.padding(.vertical, 14)
+			} else {
+				Text(Localized("action_analyze"))
+					.font(DS.Typography.buttonFont())
+					.frame(maxWidth: .infinity)
+					.padding(.vertical, 14)
 			}
 		}
+		.buttonStyle(.borderedProminent)
+		.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing)
 		.padding(.horizontal)
-		.animation(.spring(response: 0.6, dampingFraction: 0.8), value: shouldShowShareButton)
-	}
-	
-	private var shouldShowShareButton: Bool {
-		// Show share button when we have analysis results (any of them)
-		return viewModel.emotionSummary != nil || 
-			   viewModel.bodyLanguageAnalysis != nil || 
-			   viewModel.contextualEmotion != nil || 
-			   viewModel.ownerAdvice != nil ||
-			   (viewModel.state.isReady && !viewModel.isAnalyzing)
 	}
 	
 	private var analysisResultsView: some View {
@@ -722,11 +693,8 @@ private func Localized(_ key: String) -> String { NSLocalizedString(key, comment
 		media: MockMediaService(),
 		analysis: MockAnalysisService(),
 		parallelAnalysis: MockParallelAnalysisService(),
-		share: MockShareService(),
 		analytics: MockAnalyticsService(),
 		permissions: MockPermissionsService(),
-		offlineQueue: InMemoryOfflineQueue(),
-		captionService: MockCaptionGenerationService(),
 		usageMeter: UsageMeterService(limit: 3),
 		subscriptionService: MockSubscriptionService()
 	)

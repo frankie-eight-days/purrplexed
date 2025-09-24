@@ -145,14 +145,6 @@ struct CatJokes: Sendable, Equatable, Codable {
 	let jokes: [String]
 }
 
-struct ParallelAnalysisResult: Sendable, Equatable {
-	let emotionSummary: EmotionSummary?
-	let bodyLanguage: BodyLanguageAnalysis?
-	let contextualEmotion: ContextualEmotion?
-	let ownerAdvice: OwnerAdvice?
-	let catJokes: CatJokes?
-}
-
 enum AnalysisStatus: Sendable, Equatable {
 	case queued
 	case processing(progress: Double)
@@ -193,17 +185,6 @@ enum ParallelAnalysisUpdate: Sendable, Equatable {
 	case failed(message: String)
 }
 
-protocol ShareService: AnyObject, Sendable {
-	func generateShareCard(result: AnalysisResult, imageData: Data, aspect: ShareAspect) async throws -> Data
-	func saveToPhotos(data: Data) async throws
-}
-
-enum ShareAspect: Sendable {
-	case square_1_1
-	case portrait_9_16
-	case landscape_16_9
-}
-
 protocol AnalyticsService: AnyObject, Sendable {
 	func track(event: String, properties: [String: Sendable])
 }
@@ -215,9 +196,4 @@ enum PermissionStatus { case notDetermined, granted, denied, restricted }
 protocol PermissionsService: AnyObject, Sendable {
 	func status(for type: PermissionType) async -> PermissionStatus
 	func request(_ type: PermissionType) async -> PermissionStatus
-}
-
-protocol OfflineQueueing: AnyObject, Sendable {
-	func enqueue(photo: CapturedPhoto, audio: CapturedAudio?) async
-	func pendingCount() async -> Int
 }

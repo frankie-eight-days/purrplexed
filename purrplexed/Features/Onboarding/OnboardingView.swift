@@ -275,8 +275,7 @@ struct HowItWorksStep: View {
     let env = Env.load()
     let router = AppRouter()
     let usage = UsageMeterService(limit: env.freeDailyLimit)
-    let image = MockImageProcessingService()
-    let container = ServiceContainer(env: env, router: router, usageMeter: usage, imageService: image)
+    let container = ServiceContainer(env: env, router: router, usageMeter: usage)
     
     return OnboardingView(services: container, onComplete: {})
 }

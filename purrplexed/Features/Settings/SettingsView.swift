@@ -80,7 +80,6 @@ struct DebugMenuView: View {
 		env: env, 
 		router: AppRouter(), 
 		usageMeter: UsageMeterService(limit: env.freeDailyLimit), 
-		imageService: MockImageProcessingService(),
 		subscriptionService: MockSubscriptionService()
 	)
 	return SettingsView(viewModel: SettingsViewModel(services: container))

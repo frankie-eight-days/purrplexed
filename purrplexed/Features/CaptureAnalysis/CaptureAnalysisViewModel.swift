@@ -45,7 +45,6 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var isUploadingPhoto: Bool = false
 	@Published var isAnalyzing: Bool = false
 	@Published var uploadedFileUri: String? = nil
-	@Published var showShareCard: Bool = false
 	
 	// Cat detection state
 	@Published var catDetectionResult: CatDetectionResult? = nil
@@ -63,27 +62,20 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	private let media: MediaService
 	private let analysis: AnalysisService
 	private let parallelAnalysis: ParallelAnalysisService
-	private let share: ShareService
 	private let analytics: AnalyticsService
 	private let permissions: PermissionsService
-	private let offlineQueue: OfflineQueueing
-	private let captionService: CaptionGenerationService
 	private let usageMeter: UsageMeterServiceProtocol
 	private let subscriptionService: SubscriptionServiceProtocol
 	private var analysisTask: Task<Void, Never>? = nil
 
-	init(media: MediaService, analysis: AnalysisService, parallelAnalysis: ParallelAnalysisService, share: ShareService, analytics: AnalyticsService, permissions: PermissionsService, offlineQueue: OfflineQueueing, captionService: CaptionGenerationService? = nil, usageMeter: UsageMeterServiceProtocol, subscriptionService: SubscriptionServiceProtocol) {
+	init(media: MediaService, analysis: AnalysisService, parallelAnalysis: ParallelAnalysisService, analytics: AnalyticsService, permissions: PermissionsService, usageMeter: UsageMeterServiceProtocol, subscriptionService: SubscriptionServiceProtocol) {
 		self.media = media
 		self.analysis = analysis
 		self.parallelAnalysis = parallelAnalysis
-		self.share = share
 		self.analytics = analytics
 		self.permissions = permissions
-		self.offlineQueue = offlineQueue
 		self.usageMeter = usageMeter
 		self.subscriptionService = subscriptionService
-		// Use provided caption service or create a local one as fallback
-		self.captionService = captionService ?? LocalCaptionGenerationService()
 	}
 
 	// MARK: - Usage & Premium Status
@@ -192,37 +184,6 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	func didToggleAudio(_ on: Bool) { addAudio = on }
 	func didTapRetry() { transition(.idle) }
 
-	func presentShareCard() {
-		showShareCard = true
-		analytics.track(event: "share_tap", properties: [
-			"hasEmotion": emotionSummary != nil,
-			"hasBodyLanguage": bodyLanguageAnalysis != nil,
-			"hasContextual": contextualEmotion != nil,
-			"hasAdvice": ownerAdvice != nil,
-			"hasJokes": catJokes != nil
-		])
-	}
-	
-	func createShareCardViewModel() -> ShareCardViewModel {
-		return ShareCardViewModel(
-			catImageData: thumbnailData,
-			emotionSummary: emotionSummary,
-			bodyLanguageAnalysis: bodyLanguageAnalysis,
-			contextualEmotion: contextualEmotion,
-			ownerAdvice: ownerAdvice,
-			catJokes: catJokes,
-			captionService: captionService
-		)
-	}
-	
-	func didTapShare(result: AnalysisResult) {
-		analytics.track(event: "share_tap", properties: ["confidence": result.confidence])
-		Task { [weak self] in
-			guard let self else { return }
-			_ = try? await self.share.generateShareCard(result: result, imageData: self.thumbnailData ?? Data(), aspect: .square_1_1)
-		}
-	}
-	
 	func checkCameraPermission() async -> PermissionStatus {
 		return await permissions.status(for: .camera)
 	}
@@ -251,7 +212,6 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		isUploadingPhoto = false
 		isAnalyzing = false
 		uploadedFileUri = nil
-		showShareCard = false
 		// Preserve cat detection results and frame sizing during analysis
 		// catDetectionResult = nil
 		// isDetectingCat = false
@@ -340,7 +300,6 @@ final class CaptureAnalysisViewModel: ObservableObject {
 					}
 				}
 			} catch {
-				await self.offlineQueue.enqueue(photo: photo, audio: nil)
 				await MainActor.run { 
 					self.isAnalyzing = false
 					self.transition(.error(message: NSLocalizedString("error_network_generic", comment: ""))) 
@@ -508,7 +467,6 @@ final class CaptureAnalysisViewModel: ObservableObject {
 						
 						// Usage will be committed on first successful response, not here
 					case .failed(let msg):
-						await self.offlineQueue.enqueue(photo: photo, audio: audio)
 						await MainActor.run { self.transition(.error(message: msg)) }
 						Haptics.error()
 						self.analytics.track(event: "analysis_error", properties: ["message": msg])
@@ -522,7 +480,6 @@ final class CaptureAnalysisViewModel: ObservableObject {
 					}
 				}
 			} catch {
-				await self.offlineQueue.enqueue(photo: photo, audio: audio)
 				await MainActor.run { self.transition(.error(message: NSLocalizedString("error_network_generic", comment: ""))) }
 				Haptics.error()
 				Log.network.error("Analyze network error: \(error.localizedDescription, privacy: .public)")
