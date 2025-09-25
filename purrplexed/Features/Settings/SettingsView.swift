@@ -53,6 +53,12 @@ struct DebugMenuView: View {
 						presentationMode.wrappedValue.dismiss()
 					}
 					.foregroundStyle(.purple)
+
+					Button("⬇️ Demote to Free") {
+						viewModel.demoteToFree()
+						presentationMode.wrappedValue.dismiss()
+					}
+					.foregroundStyle(.red)
 				}
 				
 				Section("Info") {

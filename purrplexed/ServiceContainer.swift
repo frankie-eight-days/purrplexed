@@ -70,7 +70,11 @@ final class ServiceContainer: ObservableObject {
 		self.env = env
 		self.router = router
 		self.usageMeter = usageMeter
+		#if DEBUG
+		self.subscriptionService = subscriptionService ?? MockSubscriptionService()
+		#else
 		self.subscriptionService = subscriptionService ?? SubscriptionService()
+		#endif
 		self.mediaService = mediaService
 		if let analysisService {
 			self.analysisService = analysisService

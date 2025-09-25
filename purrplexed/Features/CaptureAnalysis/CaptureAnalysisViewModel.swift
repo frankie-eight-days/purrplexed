@@ -72,6 +72,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published private(set) var isPremium: Bool = false
 	@Published var showPaywall: Bool = false
 	private var hasCommittedUsage = false
+	private var subscriptionStatusObserver: NSObjectProtocol?
 
 	private let media: MediaService
 	private let analysis: AnalysisService
@@ -90,6 +91,21 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		self.permissions = permissions
 		self.usageMeter = usageMeter
 		self.subscriptionService = subscriptionService
+		subscriptionStatusObserver = NotificationCenter.default.addObserver(forName: .subscriptionStatusDidChange, object: nil, queue: .main) { [weak self] notification in
+			guard let self else { return }
+			let newValue = (notification.userInfo?["isPremium"] as? Bool) ?? false
+			Task { [weak self] in
+				guard let self else { return }
+				await MainActor.run { self.isPremium = newValue }
+				await self.refreshUsageStatus()
+			}
+		}
+	}
+
+	deinit {
+		if let subscriptionStatusObserver {
+			NotificationCenter.default.removeObserver(subscriptionStatusObserver)
+		}
 	}
 
 	// MARK: - Usage & Premium Status
@@ -99,11 +115,13 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			guard let self else { return }
 			let remaining = await self.usageMeter.remainingFreeCount()
 			let premium = await self.subscriptionService.isPremium
-			let newUsedCount = self.dailyLimit - remaining
+			let totalLimit = await self.usageMeter.totalDailyLimit()
+			let newUsedCount = max(0, totalLimit - remaining)
 			print("🔢 Refreshing usage status - used: \(newUsedCount), remaining: \(remaining), premium: \(premium)")
 			await MainActor.run {
 				self.usedCount = newUsedCount
 				self.isPremium = premium
+				self.dailyLimit = totalLimit
 			}
 		}
 	}

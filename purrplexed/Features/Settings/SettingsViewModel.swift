@@ -62,15 +62,36 @@ final class SettingsViewModel: ObservableObject {
 	func togglePremiumStatus() {
 		Task { [weak self] in
 			guard let self else { return }
-			let currentStatus = await self.services.subscriptionService.isPremium
-			
-			if self.services.subscriptionService is MockSubscriptionService {
-				// Toggle mock premium status
-				UserDefaults.standard.set(!currentStatus, forKey: "mock_premium_status")
-				print("🔧 Premium status toggled to: \(!currentStatus)")
+			if let mockService = self.services.subscriptionService as? MockSubscriptionService {
+				let oldStatus = await mockService.isPremium
+				let newValue = await mockService.togglePremium()
+				await MainActor.run {
+					NotificationCenter.default.post(name: .subscriptionStatusDidChange, object: nil, userInfo: ["isPremium": newValue, "source": "toggle", "previous": oldStatus])
+				}
+				print("🔧 Premium status toggled from \(oldStatus ? "premium" : "free") to \(newValue ? "premium" : "free")")
 			} else {
-				print("🔧 Can only toggle premium in debug/mock mode")
+				print("🔧 Toggle premium not supported outside mock service")
 			}
 		}
 	}
+
+	func demoteToFree() {
+		Task { [weak self] in
+			guard let self else { return }
+			if let mockService = self.services.subscriptionService as? MockSubscriptionService {
+				let oldStatus = await mockService.isPremium
+				await mockService.setPremium(false)
+				await MainActor.run {
+					NotificationCenter.default.post(name: .subscriptionStatusDidChange, object: nil, userInfo: ["isPremium": false, "source": "demote", "previous": oldStatus])
+				}
+				print("🔧 Premium status forced to free (was \(oldStatus ? "premium" : "free"))")
+			} else {
+				print("🔧 Demote to free not supported outside mock service")
+			}
+		}
+	}
+}
+
+extension Notification.Name {
+	static let subscriptionStatusDidChange = Notification.Name("subscriptionStatusDidChange")
 }

@@ -14,6 +14,8 @@ protocol SubscriptionServiceProtocol: AnyObject, Sendable {
 	func restorePurchases() async throws
 	func purchase(productId: String) async throws -> Bool
 	func getAvailableProducts() async throws -> [Product]
+	func refreshPremiumStatus() async
+	func setDebugPremiumOverride(_ value: Bool?) async
 }
 
 /// Production SubscriptionService using StoreKit 2
@@ -26,13 +28,28 @@ final class SubscriptionService: ObservableObject, SubscriptionServiceProtocol {
 		"purrplexed_monthly_premium",
 		"purrplexed_yearly_premium"
 	]
+	private let premiumOverrideKey = "debug_premium_override"
 	
 	private var updateListenerTask: Task<Void, Error>?
 	
 	var isPremium: Bool {
 		get async {
-			await MainActor.run {
-				currentSubscription?.state == .subscribed
+			if let override = debugPremiumOverride {
+				return override
+			}
+			return currentSubscription?.state == .subscribed
+		}
+	}
+
+	private var debugPremiumOverride: Bool? {
+		get {
+			UserDefaults.standard.object(forKey: premiumOverrideKey) as? Bool
+		}
+		set {
+			if let value = newValue {
+				UserDefaults.standard.set(value, forKey: premiumOverrideKey)
+			} else {
+				UserDefaults.standard.removeObject(forKey: premiumOverrideKey)
 			}
 		}
 	}
@@ -81,6 +98,21 @@ final class SubscriptionService: ObservableObject, SubscriptionServiceProtocol {
 	
 	func getAvailableProducts() async throws -> [Product] {
 		return availableProducts
+	}
+
+	func refreshPremiumStatus() async {
+		await updateCustomerProductStatus()
+	}
+
+	func setDebugPremiumOverride(_ value: Bool?) async {
+		let previous = debugPremiumOverride
+		debugPremiumOverride = value
+		if value == nil {
+			print("🔧 Debug premium override removed (was: \(previous.map { $0 ? "enabled" : "disabled" } ?? "none"))")
+		} else {
+			print("🔧 Debug premium override set to \(value == true ? "premium" : "free") (was: \(previous.map { $0 ? "premium" : "free" } ?? "none"))")
+		}
+		objectWillChange.send()
 	}
 	
 	private func loadProducts() async {
@@ -159,6 +191,33 @@ actor MockSubscriptionService: SubscriptionServiceProtocol {
 		_isPremium = true
 		print("🔧 Mock: Purchased premium = true")
 		return true
+	}
+
+	func refreshPremiumStatus() async {
+		// Nothing needed for mock; state derived from UserDefaults
+	}
+
+	func setDebugPremiumOverride(_ value: Bool?) async {
+		let resolved = value ?? false
+		let previous = _isPremium
+		_isPremium = resolved
+		print("🔧 Mock: Premium override set to \(resolved) (was: \(previous))")
+	}
+
+	func setPremiumOverride(_ value: Bool?) async { _isPremium = value ?? _isPremium }
+
+	func setPremium(_ value: Bool) async {
+		_isPremium = value
+		print("🔧 Mock: Premium status manually set to \(value)")
+		NotificationCenter.default.post(name: .subscriptionStatusDidChange, object: nil, userInfo: ["isPremium": value, "source": "mockServiceSet"])
+	}
+
+	func togglePremium() async -> Bool {
+		let newValue = !_isPremium
+		_isPremium = newValue
+		print("🔧 Mock: Premium status toggled to \(newValue)")
+		NotificationCenter.default.post(name: .subscriptionStatusDidChange, object: nil, userInfo: ["isPremium": newValue, "source": "mockServiceToggle"])
+		return newValue
 	}
 	
 	func getAvailableProducts() async throws -> [Product] {
