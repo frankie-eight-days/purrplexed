@@ -37,6 +37,7 @@ struct Env: Sendable {
 protocol UsageMeterServiceProtocol: AnyObject, Sendable {
 	func canStartJob() async -> Bool
 	func remainingFreeCount() async -> Int
+	func totalDailyLimit() async -> Int
 	func reserve() async
 	func commit() async
 	func rollback() async

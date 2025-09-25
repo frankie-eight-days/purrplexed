@@ -57,6 +57,10 @@ actor UsageMeterService: UsageMeterServiceProtocol {
 		return max(0, dailyLimit - (consumed + reserved))
 	}
 
+	func totalDailyLimit() async -> Int {
+		return dailyLimit
+	}
+
 	func reserve() async {
 		resetIfNeeded()
 		let newReserved = min(dailyLimit, reserved + 1)

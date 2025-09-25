@@ -42,11 +42,14 @@ struct AppRootView: View {
 				}
 				.toolbar {
 					ToolbarItem(placement: .topBarLeading) {
-						if !captureVM.isPremium {
-							UsageMeterPill(used: captureVM.usedCount, total: captureVM.dailyLimit) {
+						UsageMeterPill(
+							used: captureVM.usedCount,
+							total: captureVM.dailyLimit,
+							isPremium: captureVM.isPremium,
+							onUpgradeTap: captureVM.isPremium ? nil : {
 								router.present(.paywall)
 							}
-						}
+						)
 					}
 					
 					ToolbarItem(placement: .topBarTrailing) {
@@ -61,7 +64,12 @@ struct AppRootView: View {
 		.sheet(item: $router.route, onDismiss: { router.dismiss() }) { route in
 			switch route {
 			case .paywall:
-				PaywallView(onClose: { router.dismiss() })
+				PaywallView(
+					onClose: { router.dismiss() },
+					onUpgrade: {
+						captureVM.refreshUsageStatus()
+					}
+				)
 			case .settings:
 				SettingsView(viewModel: SettingsViewModel(services: services!))
 			case .onboarding:

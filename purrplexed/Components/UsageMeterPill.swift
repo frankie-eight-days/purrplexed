@@ -10,13 +10,15 @@ import SwiftUI
 struct UsageMeterPill: View {
 	let used: Int
 	let total: Int
+	let isPremium: Bool
 	var onUpgradeTap: (() -> Void)? = nil
 	
-	private var remaining: Int { total - used }
+	private var remaining: Int { max(total - used, 0) }
+	private var canUpgrade: Bool { !isPremium && remaining == 0 }
 
 	var body: some View {
 		Button(action: {
-			if remaining == 0 {
+			if canUpgrade {
 				onUpgradeTap?()
 			}
 		}) {
@@ -48,7 +50,9 @@ struct UsageMeterPill: View {
 	}
 	
 	private var displayText: String {
-		if remaining == 0 {
+		if isPremium {
+			return "∞ Unlimited"
+		} else if canUpgrade {
 			return "Upgrade"
 		} else {
 			return "\(used)/\(total)"
@@ -56,6 +60,9 @@ struct UsageMeterPill: View {
 	}
 	
 	private var iconName: String {
+		if isPremium {
+			return "infinity.circle.fill"
+		}
 		switch remaining {
 		case 0:
 			return "star.fill"
@@ -69,6 +76,9 @@ struct UsageMeterPill: View {
 	}
 	
 	private var iconColor: Color {
+		if isPremium {
+			return .white
+		}
 		switch used {
 		case 0:
 			return .green
@@ -82,6 +92,9 @@ struct UsageMeterPill: View {
 	}
 	
 	private var textColor: Color {
+		if isPremium {
+			return .white
+		}
 		switch remaining {
 		case 0:
 			return .white
@@ -95,7 +108,9 @@ struct UsageMeterPill: View {
 	}
 	
 	private var backgroundStyle: some ShapeStyle {
-		if remaining == 0 {
+		if isPremium {
+			return AnyShapeStyle(LinearGradient(colors: [.purple, .pink], startPoint: .leading, endPoint: .trailing))
+		} else if remaining == 0 {
 			return AnyShapeStyle(LinearGradient(colors: [.blue, .purple], startPoint: .leading, endPoint: .trailing))
 		} else {
 			switch used {
@@ -112,7 +127,9 @@ struct UsageMeterPill: View {
 	}
 	
 	private var accessibilityText: String {
-		if remaining == 0 {
+		if isPremium {
+			return "Premium active. Unlimited analyses available."
+		} else if canUpgrade {
 			return "No free analyses remaining. Used \(used) of \(total). Tap to upgrade."
 		} else {
 			return "Used \(used) of \(total) free analyses today. \(remaining) remaining."
@@ -122,12 +139,13 @@ struct UsageMeterPill: View {
 
 #Preview {
 	VStack(spacing: DS.Spacing.m) {
-		UsageMeterPill(used: 0, total: 3)
-		UsageMeterPill(used: 1, total: 3)
-		UsageMeterPill(used: 2, total: 3)
-		UsageMeterPill(used: 3, total: 3) { 
+		UsageMeterPill(used: 0, total: 3, isPremium: false)
+		UsageMeterPill(used: 1, total: 3, isPremium: false)
+		UsageMeterPill(used: 2, total: 3, isPremium: false)
+		UsageMeterPill(used: 3, total: 3, isPremium: false) {
 			print("Upgrade tapped")
 		}
+		UsageMeterPill(used: 0, total: 3, isPremium: true)
 	}
 	.padding()
 }
