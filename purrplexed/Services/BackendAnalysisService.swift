@@ -10,18 +10,21 @@ import Foundation
 struct BackendAnalysisResponse: Decodable { let analysis: String?; let text: String? }
 struct BackendErrorResponse: Decodable { let error: String?; let message: String? }
 
-final class BackendAnalysisService: AnalysisService {
+final class ProductionAnalysisService: AnalysisService {
 	private let baseURL: URL
 	private let analyzePath: String
 	private let prompt: String
 	private let appKey: String?
 	private let urlSession: URLSession
 	
-	init(baseURL: URL, analyzePath: String = "/analyze", prompt: String, appKey: String? = nil, urlSession: URLSession = .shared) {
+	init(env: Env, urlSession: URLSession = .shared) {
+		guard let baseURL = env.apiBaseURL else {
+			fatalError("ProductionAnalysisService requires API_BASE_URL in Env.plist")
+		}
 		self.baseURL = baseURL
-		self.analyzePath = analyzePath
-		self.prompt = prompt
-		self.appKey = appKey
+		self.analyzePath = env.analyzePath
+		self.prompt = "Summarize the cat's state in plain language."
+		self.appKey = env.appKey
 		self.urlSession = urlSession
 	}
 	

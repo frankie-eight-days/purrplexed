@@ -316,7 +316,7 @@ struct ParallelAnalysisResultsView: View {
 								Text(emotionSummary.emoji)
 								Text(emotionSummary.emotion)
 							}
-							.foregroundColor(DS.Color.accent)
+							.foregroundColor(colorForMoodType(emotionSummary.moodType))
 							Spacer()
 							Text("(\(emotionSummary.intensity))")
 								.font(.caption)
@@ -327,7 +327,6 @@ struct ParallelAnalysisResultsView: View {
 							.font(DS.Typography.bodyFont())
 							.fixedSize(horizontal: false, vertical: true)
 						
-						// Warning message if present
 						if let warningMessage = emotionSummary.warningMessage, !warningMessage.isEmpty {
 							HStack(alignment: .top, spacing: 8) {
 								Image(systemName: "exclamationmark.triangle.fill")
@@ -374,10 +373,6 @@ struct ParallelAnalysisResultsView: View {
 				.clipShape(RoundedRectangle(cornerRadius: 12))
 			}
 		}
-		.animation(.spring(response: 0.8), value: showEmotionSummary)
-		.animation(.spring(response: 0.8), value: viewModel.bodyLanguageAnalysis?.overallMood)
-		.animation(.spring(response: 0.8), value: viewModel.contextualEmotion?.emotionalMeaning)
-		.animation(.spring(response: 0.8), value: viewModel.ownerAdvice?.immediateActions)
 		.onAppear {
 			showEmotionSummary = viewModel.emotionSummary != nil
 		}
@@ -519,10 +514,10 @@ struct BodyLanguageContentView: View {
 					.font(.caption)
 					.fontWeight(.medium)
 					.foregroundColor(.secondary)
-				Text(analysis.overallMood)
+				Text(analysis.overallMood.capitalized)
 					.font(DS.Typography.bodyFont())
 					.fontWeight(.medium)
-					.foregroundColor(.green)
+					.foregroundColor(colorForMoodType(analysis.overallMood))
 			}
 		}
 	}
@@ -575,19 +570,19 @@ struct CatJokesContentView: View {
 	let jokes: CatJokes
 	
 	var body: some View {
-		VStack(alignment: .leading, spacing: 8) {
-			ForEach(Array(jokes.jokes.enumerated()), id: \.offset) { index, joke in
-				HStack(alignment: .top, spacing: 8) {
-					Text("😸")
-						.font(DS.Typography.bodyFont())
-						.frame(width: 16, alignment: .leading)
-					
-					Text(joke)
-						.font(DS.Typography.bodyFont())
-						.fixedSize(horizontal: false, vertical: true)
-				}
+	VStack(alignment: .leading, spacing: 8) {
+		ForEach(Array(jokes.jokes.enumerated()), id: \.offset) { index, joke in
+			HStack(alignment: .top, spacing: 8) {
+				Text("😸")
+					.font(DS.Typography.bodyFont())
+					.frame(width: 20, alignment: .leading)
+				
+				Text(joke)
+					.font(DS.Typography.bodyFont())
+					.fixedSize(horizontal: false, vertical: true)
 			}
 		}
+	}
 	}
 }
 
@@ -800,6 +795,18 @@ struct ImageTransform: Equatable {
 }
 
 private func Localized(_ key: String) -> String { NSLocalizedString(key, comment: "") }
+
+private func colorForMoodType(_ mood: String) -> Color {
+	switch mood.lowercased() {
+	case "relaxed": return .blue
+	case "content": return .green
+	case "playful": return .orange
+	case "alert": return .yellow
+	case "cautious": return .orange
+	case "stressed": return .red
+	default: return DS.Color.accent
+	}
+}
 
 #Preview("CaptureAnalysis - Minimal") {
 	let vm = CaptureAnalysisViewModel(

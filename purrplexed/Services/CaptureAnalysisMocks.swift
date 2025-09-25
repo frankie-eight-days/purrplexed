@@ -55,27 +55,27 @@ final class MockParallelAnalysisService: ParallelAnalysisService {
 		
 		let scenarios = [
 			EmotionSummary(
-				emotion: "Content", 
-				intensity: "Moderate", 
-				description: "The cat appears relaxed and comfortable", 
+				emotion: "Relaxed stretch", 
+				intensity: "Low", 
+				description: "The cat is resting comfortably with loose muscles.", 
 				emoji: "😌", 
-				moodType: "happy", 
+				moodType: "relaxed", 
 				warningMessage: nil
 			),
 			EmotionSummary(
-				emotion: "Alert", 
-				intensity: "Moderate", 
-				description: "The cat is attentive and watching its surroundings", 
+				emotion: "Calm vigilance", 
+				intensity: "Medium", 
+				description: "The cat is alert but composed, watching the room.", 
 				emoji: "👀", 
-				moodType: "neutral", 
+				moodType: "alert", 
 				warningMessage: nil
 			),
 			EmotionSummary(
-				emotion: "Playful", 
+				emotion: "Playful focus", 
 				intensity: "High", 
-				description: "The cat looks ready for fun and games", 
-				emoji: "😸", 
-				moodType: "happy", 
+				description: "The cat looks poised to engage with something interesting.", 
+				emoji: "😼", 
+				moodType: "playful", 
 				warningMessage: nil
 			)
 		]
@@ -85,7 +85,7 @@ final class MockParallelAnalysisService: ParallelAnalysisService {
 	
 	func analyzeBodyLanguage(fileUri: String) async throws -> BodyLanguageAnalysis {
 		try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s
-		return BodyLanguageAnalysis(posture: "Relaxed", ears: "Forward", tail: "Still", eyes: "Half-closed", whiskers: "Relaxed and forward", overallMood: "Peaceful")
+		return BodyLanguageAnalysis(posture: "Loafed with shoulders relaxed", ears: "Pointed forward", tail: "Resting along the body", eyes: "Soft and half-open", whiskers: "Neutral angle", overallMood: "relaxed")
 	}
 	
 	func analyzeContextualEmotion(fileUri: String) async throws -> ContextualEmotion {
@@ -123,80 +123,64 @@ final class MockParallelAnalysisService: ParallelAnalysisService {
 				let fileUri = "mock://file/uri/12345"
 				continuation.yield(.uploadCompleted(fileUri: fileUri))
 				
-				// First get emotion summary to determine if we should generate cat jokes
-				var emotionSummary: EmotionSummary?
-				try? await Task.sleep(nanoseconds: 300_000_000)
-				// Vary the mock response to test different scenarios
-				let scenarios = [
+				let emotionScenarios = [
 					EmotionSummary(
-						emotion: "Content", 
-						intensity: "Moderate", 
-						description: "The cat appears relaxed and comfortable", 
+						emotion: "Relaxed stretch", 
+						intensity: "Low", 
+						description: "The cat is resting comfortably with loose muscles.", 
 						emoji: "😌", 
-						moodType: "happy", 
+						moodType: "relaxed", 
 						warningMessage: nil
 					),
 					EmotionSummary(
-						emotion: "Alert", 
-						intensity: "Moderate", 
-						description: "The cat is attentive and watching its surroundings", 
+						emotion: "Calm vigilance", 
+						intensity: "Medium", 
+						description: "The cat is alert but composed, watching the room.", 
 						emoji: "👀", 
-						moodType: "neutral", 
+						moodType: "alert", 
 						warningMessage: nil
 					),
 					EmotionSummary(
-						emotion: "Playful", 
+						emotion: "Playful focus", 
 						intensity: "High", 
-						description: "The cat looks ready for fun and games", 
-						emoji: "😸", 
-						moodType: "happy", 
+						description: "The cat looks poised to engage with something interesting.", 
+						emoji: "😼", 
+						moodType: "playful", 
 						warningMessage: nil
 					)
 				]
 				
-				emotionSummary = scenarios.randomElement()!
-				continuation.yield(.emotionSummaryCompleted(emotionSummary!))
+				let summary = emotionScenarios.randomElement()!
+				continuation.yield(.emotionSummaryCompleted(summary))
 				
-				// Simulate remaining parallel execution with varied timing
-				await withTaskGroup(of: Void.self) { group in
-					group.addTask {
-						try? await Task.sleep(nanoseconds: 400_000_000)
-						let result = BodyLanguageAnalysis(posture: "Relaxed", ears: "Forward", tail: "Still", eyes: "Half-closed", whiskers: "Relaxed and forward", overallMood: "Peaceful")
-						continuation.yield(.bodyLanguageCompleted(result))
-					}
-					
-					group.addTask {
-						try? await Task.sleep(nanoseconds: 350_000_000)
-						let result = ContextualEmotion(
-							contextClues: ["Soft lighting", "Comfortable furniture", "Quiet environment"], 
-							environmentalFactors: ["Indoor safe space", "No visible threats"], 
-							emotionalMeaning: ["Feeling secure and at home"]
-						)
-						continuation.yield(.contextualEmotionCompleted(result))
-					}
-					
-					group.addTask {
-						try? await Task.sleep(nanoseconds: 450_000_000)
-						let result = OwnerAdvice(
-							immediateActions: ["Continue providing a calm environment", "Keep regular feeding schedule"], 
-							longTermSuggestions: ["Maintain regular routine"], 
-							warningSigns: []
-						)
-						continuation.yield(.ownerAdviceCompleted(result))
-					}
-					
-					// Cat jokes - only if mood is happy
-					if let emotionSummary = emotionSummary, emotionSummary.moodType.lowercased() == "happy" {
-						group.addTask {
-							try? await Task.sleep(nanoseconds: 250_000_000)
-							let result = CatJokes(jokes: [
-								"I'm not sleeping, I'm just resting my eyes... for 16 hours",
-								"This sunny spot is mine now. Don't even think about it.",
-								"I knocked that off the table for science. You're welcome."
-							])
-							continuation.yield(.catJokesCompleted(result))
-						}
-					}
+				try? await Task.sleep(nanoseconds: 200_000_000)
+				let body = BodyLanguageAnalysis(posture: "Loafed with shoulders relaxed", ears: "Pointed forward", tail: "Resting along the body", eyes: "Soft and half-open", whiskers: "Neutral angle", overallMood: "relaxed")
+				continuation.yield(.bodyLanguageCompleted(body))
+				
+				try? await Task.sleep(nanoseconds: 150_000_000)
+				let context = ContextualEmotion(
+					contextClues: ["Soft lighting", "Comfortable furniture", "Quiet environment"],
+					environmentalFactors: ["Indoor safe space", "No visible threats"],
+					emotionalMeaning: ["Feeling secure and at home"]
+				)
+				continuation.yield(.contextualEmotionCompleted(context))
+				
+				try? await Task.sleep(nanoseconds: 150_000_000)
+				let advice = OwnerAdvice(
+					immediateActions: ["Continue providing a calm environment", "Keep regular feeding schedule"],
+					longTermSuggestions: ["Maintain regular routine"],
+					warningSigns: []
+				)
+				continuation.yield(.ownerAdviceCompleted(advice))
+				
+				if ["content", "playful"].contains(summary.moodType.lowercased()) {
+					try? await Task.sleep(nanoseconds: 120_000_000)
+					let jokes = CatJokes(jokes: [
+						"This patch of sunlight is under new management.",
+						"I’ll chase the toy after this very serious lounge session.",
+						"Please log all petting requests in triplicate."
+					])
+					continuation.yield(.catJokesCompleted(jokes))
 				}
 				
 				continuation.finish()

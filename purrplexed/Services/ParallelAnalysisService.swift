@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 struct UploadResponse: Decodable {
 	let fileUri: String
@@ -131,134 +132,129 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 	// MARK: - Individual Analysis Methods
 	
 	func analyzeEmotionSummary(fileUri: String) async throws -> EmotionSummary {
-		let response = try await performAnalysis(fileUri: fileUri, analysisType: "emotion_summary")
-		guard let result = response.emotionSummary else {
-			throw AnalysisError.invalidResponse("Missing emotion_summary in response")
-		}
-		return result
+		try await analyzeEmotionSummaryBase(fileUri: fileUri)
 	}
 	
 	func analyzeBodyLanguage(fileUri: String) async throws -> BodyLanguageAnalysis {
-		let response = try await performAnalysis(fileUri: fileUri, analysisType: "body_language")
-		guard let result = response.bodyLanguage else {
-			throw AnalysisError.invalidResponse("Missing body_language in response")
-		}
-		return result
+		try await analyzeBodyLanguageBase(fileUri: fileUri)
 	}
 	
 	func analyzeContextualEmotion(fileUri: String) async throws -> ContextualEmotion {
-		let response = try await performAnalysis(fileUri: fileUri, analysisType: "contextual_emotion")
-		guard let result = response.contextualEmotion else {
-			throw AnalysisError.invalidResponse("Missing contextual_emotion in response")
-		}
-		return result
+		try await analyzeContextualEmotionBase(fileUri: fileUri)
 	}
 	
 	func analyzeOwnerAdvice(fileUri: String) async throws -> OwnerAdvice {
-		let response = try await performAnalysis(fileUri: fileUri, analysisType: "owner_advice")
-		guard let result = response.ownerAdvice else {
-			throw AnalysisError.invalidResponse("Missing owner_advice in response")
-		}
-		return result
+		try await analyzeOwnerAdviceBase(fileUri: fileUri)
 	}
 	
 	func analyzeCatJokes(fileUri: String) async throws -> CatJokes {
-		let response = try await performAnalysis(fileUri: fileUri, analysisType: "cat_jokes")
-		guard let result = response.catJokes else {
-			throw AnalysisError.invalidResponse("Missing cat_jokes in response")
-		}
-		return result
+		try await analyzeCatJokesBase(fileUri: fileUri)
 	}
 	
 	// MARK: - Parallel Analysis
 	
 	func analyzeParallel(photo: CapturedPhoto) async throws -> AsyncStream<ParallelAnalysisUpdate> {
-		AsyncStream { continuation in
-			Task {
+		let imageFingerprint = shortHash(for: photo.imageData)
+		Log.network.info("Preparing analysis for fingerprint=\(imageFingerprint) size=\(photo.imageData.count) bytes")
+		return AsyncStream<ParallelAnalysisUpdate> { continuation in
+			let workerTask = Task {
 				let overallStartTime = CFAbsoluteTimeGetCurrent()
-				Log.network.info("Starting parallel analysis - overall timer started")
+				Log.network.info("Starting sequential analysis - overall timer started")
 				do {
-					// Step 1: Upload photo
+					try Task.checkCancellation()
 					continuation.yield(.uploadStarted)
+					try Task.checkCancellation()
 					let fileUri = try await uploadPhoto(photo)
+					Log.network.info("Upload completed for fingerprint=\(imageFingerprint) fileUri=\(fileUri)")
+					try Task.checkCancellation()
 					continuation.yield(.uploadCompleted(fileUri: fileUri))
 					
-					// Step 2: First, get emotion summary to determine mood-based analysis
-					var emotionSummary: EmotionSummary?
+					var context: [String: Any] = [:]
+					var latestEmotion: EmotionSummary?
+					
 					do {
-						emotionSummary = try await self.analyzeEmotionSummary(fileUri: fileUri)
-						continuation.yield(.emotionSummaryCompleted(emotionSummary!))
+						let emotion = try await analyzeEmotionSummaryBase(fileUri: fileUri)
+						try Task.checkCancellation()
+						context["emotion_summary"] = try? jsonObject(from: emotion)
+						latestEmotion = emotion
+						continuation.yield(.emotionSummaryCompleted(emotion))
+					} catch is CancellationError {
+						throw CancellationError()
 					} catch {
-						Log.network.error("Emotion summary analysis failed: \(error.localizedDescription)")
 						continuation.yield(.failed(message: "Emotion analysis failed"))
+						continuation.finish()
+						return
 					}
 					
-					// Step 3: Run remaining analyses in parallel, including conditional mood-based analysis
-					await withTaskGroup(of: Void.self) { group in
-						// Body Language  
-						group.addTask {
-							do {
-								let result = try await self.analyzeBodyLanguage(fileUri: fileUri)
-								continuation.yield(.bodyLanguageCompleted(result))
-							} catch {
-								Log.network.error("Body language analysis failed: \(error.localizedDescription)")
-								continuation.yield(.failed(message: "Body language analysis failed"))
-							}
-						}
-						
-						// Contextual Emotion
-						group.addTask {
-							do {
-								let result = try await self.analyzeContextualEmotion(fileUri: fileUri)
-								continuation.yield(.contextualEmotionCompleted(result))
-							} catch {
-								Log.network.error("Contextual emotion analysis failed: \(error.localizedDescription)")
-								continuation.yield(.failed(message: "Contextual analysis failed"))
-							}
-						}
-						
-						// Owner Advice
-						group.addTask {
-							do {
-								let result = try await self.analyzeOwnerAdvice(fileUri: fileUri)
-								continuation.yield(.ownerAdviceCompleted(result))
-							} catch {
-								Log.network.error("Owner advice analysis failed: \(error.localizedDescription)")
-								continuation.yield(.failed(message: "Owner advice analysis failed"))
-							}
-						}
-						
-						// Cat Jokes - only if mood is happy
-						if let emotionSummary = emotionSummary, emotionSummary.moodType.lowercased() == "happy" {
-							group.addTask {
-								do {
-									let result = try await self.analyzeCatJokes(fileUri: fileUri)
-									continuation.yield(.catJokesCompleted(result))
-								} catch {
-									Log.network.error("Cat jokes analysis failed: \(error.localizedDescription)")
-									continuation.yield(.failed(message: "Cat jokes analysis failed"))
-								}
-							}
+					do {
+						let body = try await analyzeBodyLanguageWithContext(fileUri: fileUri, context: context)
+						try Task.checkCancellation()
+						context["body_language"] = try? jsonObject(from: body)
+						continuation.yield(.bodyLanguageCompleted(body))
+					} catch is CancellationError {
+						throw CancellationError()
+					} catch {
+						continuation.yield(.failed(message: "Body language analysis failed"))
+						continuation.finish()
+						return
+					}
+					
+					do {
+						let contextEmotion = try await analyzeContextualEmotionWithContext(fileUri: fileUri, context: context)
+						try Task.checkCancellation()
+						context["contextual_emotion"] = try? jsonObject(from: contextEmotion)
+						continuation.yield(.contextualEmotionCompleted(contextEmotion))
+					} catch is CancellationError {
+						throw CancellationError()
+					} catch {
+						Log.network.warning("Contextual emotion analysis skipped: \(error.localizedDescription, privacy: .public)")
+					}
+					
+					do {
+						let advice = try await analyzeOwnerAdviceWithContext(fileUri: fileUri, context: context)
+						try Task.checkCancellation()
+						continuation.yield(.ownerAdviceCompleted(advice))
+					} catch is CancellationError {
+						throw CancellationError()
+					} catch {
+						Log.network.warning("Owner advice analysis skipped: \(error.localizedDescription, privacy: .public)")
+					}
+					
+					if let emotion = latestEmotion,
+					   ["content", "playful"].contains(emotion.moodType.lowercased()) {
+						do {
+							let jokes = try await analyzeCatJokesWithContext(fileUri: fileUri, context: context)
+							try Task.checkCancellation()
+							continuation.yield(.catJokesCompleted(jokes))
+						} catch is CancellationError {
+							throw CancellationError()
+						} catch {
+							Log.network.warning("Cat jokes analysis skipped: \(error.localizedDescription, privacy: .public)")
 						}
 					}
 					
 					let overallDuration = CFAbsoluteTimeGetCurrent() - overallStartTime
-					Log.network.info("Parallel analysis completed successfully - total duration=\(String(format: "%.3f", overallDuration))s")
+					Log.network.info("Sequential analysis completed successfully - total duration=\(String(format: "%.3f", overallDuration))s")
 					continuation.finish()
-					
+				} catch is CancellationError {
+					Log.network.info("Sequential analysis cancelled")
+					continuation.finish()
 				} catch {
 					let overallDuration = CFAbsoluteTimeGetCurrent() - overallStartTime
-					Log.network.error("Parallel analysis failed: \(error.localizedDescription) - total duration=\(String(format: "%.3f", overallDuration))s")
+					Log.network.error("Sequential analysis failed: \(error.localizedDescription) - total duration=\(String(format: "%.3f", overallDuration))s")
 					continuation.yield(.failed(message: "Analysis failed"))
 					continuation.finish()
 				}
+			}
+			continuation.onTermination = { @Sendable _ in
+				workerTask.cancel()
 			}
 		}
 	}
 	
 	// MARK: - Private Helpers
 	
-	private func performAnalysis(fileUri: String, analysisType: String) async throws -> SingleAnalysisResponse {
+	private func performAnalysis(fileUri: String, analysisType: String, context: [String: Any]? = nil) async throws -> SingleAnalysisResponse {
 		let startTime = CFAbsoluteTimeGetCurrent()
 		let url = baseURL.appendingPathComponent(analyzePath)
 		Log.network.info("POST \(url.absoluteString, privacy: .public) type=\(analysisType)")
@@ -272,10 +268,16 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 			request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
 		}
 		
-		let payload: [String: Any] = [
-			"fileUri": fileUri,
-			"analysisType": analysisType
-		]
+		let payload: [String: Any] = {
+			var base: [String: Any] = [
+				"fileUri": fileUri,
+				"analysisType": analysisType
+			]
+			if let context {
+				base["context"] = context
+			}
+			return base
+		}()
 		
 		// Log the request payload for debugging
 		if let payloadData = try? JSONSerialization.data(withJSONObject: payload),
@@ -329,6 +331,89 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 		
 		return body
+	}
+	
+	private func jsonObject<T: Encodable>(from value: T) throws -> Any {
+		let data = try JSONEncoder().encode(value)
+		return try JSONSerialization.jsonObject(with: data)
+	}
+
+	private func shortHash(for data: Data) -> String {
+		let digest = SHA256.hash(data: data)
+		let hex = digest.map { String(format: "%02x", $0) }.joined()
+		return String(hex.prefix(16))
+	}
+	
+	private func analyzeEmotionSummaryBase(fileUri: String) async throws -> EmotionSummary {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "emotion_summary")
+		guard let result = response.emotionSummary else {
+			throw AnalysisError.invalidResponse("Missing emotion_summary in response")
+		}
+		return result
+	}
+	
+	private func analyzeBodyLanguageBase(fileUri: String) async throws -> BodyLanguageAnalysis {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "body_language")
+		guard let result = response.bodyLanguage else {
+			throw AnalysisError.invalidResponse("Missing body_language in response")
+		}
+		return result
+	}
+	
+	private func analyzeContextualEmotionBase(fileUri: String) async throws -> ContextualEmotion {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "contextual_emotion")
+		guard let result = response.contextualEmotion else {
+			throw AnalysisError.invalidResponse("Missing contextual_emotion in response")
+		}
+		return result
+	}
+	
+	private func analyzeOwnerAdviceBase(fileUri: String) async throws -> OwnerAdvice {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "owner_advice")
+		guard let result = response.ownerAdvice else {
+			throw AnalysisError.invalidResponse("Missing owner_advice in response")
+		}
+		return result
+	}
+	
+	private func analyzeCatJokesBase(fileUri: String) async throws -> CatJokes {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "cat_jokes")
+		guard let result = response.catJokes else {
+			throw AnalysisError.invalidResponse("Missing cat_jokes in response")
+		}
+		return result
+	}
+	
+	private func analyzeBodyLanguageWithContext(fileUri: String, context: [String: Any]) async throws -> BodyLanguageAnalysis {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "body_language", context: context)
+		guard let result = response.bodyLanguage else {
+			throw AnalysisError.invalidResponse("Missing body_language in response")
+		}
+		return result
+	}
+	
+	private func analyzeContextualEmotionWithContext(fileUri: String, context: [String: Any]) async throws -> ContextualEmotion {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "contextual_emotion", context: context)
+		guard let result = response.contextualEmotion else {
+			throw AnalysisError.invalidResponse("Missing contextual_emotion in response")
+		}
+		return result
+	}
+	
+	private func analyzeOwnerAdviceWithContext(fileUri: String, context: [String: Any]) async throws -> OwnerAdvice {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "owner_advice", context: context)
+		guard let result = response.ownerAdvice else {
+			throw AnalysisError.invalidResponse("Missing owner_advice in response")
+		}
+		return result
+	}
+	
+	private func analyzeCatJokesWithContext(fileUri: String, context: [String: Any]) async throws -> CatJokes {
+		let response = try await performAnalysis(fileUri: fileUri, analysisType: "cat_jokes", context: context)
+		guard let result = response.catJokes else {
+			throw AnalysisError.invalidResponse("Missing cat_jokes in response")
+		}
+		return result
 	}
 }
 

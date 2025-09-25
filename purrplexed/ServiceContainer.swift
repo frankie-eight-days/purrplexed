@@ -61,8 +61,8 @@ final class ServiceContainer: ObservableObject {
 		usageMeter: UsageMeterServiceProtocol,
 		subscriptionService: SubscriptionServiceProtocol? = nil,
 		mediaService: MediaService = ProductionMediaService(),
-		analysisService: AnalysisService = MockAnalysisService(),
-		parallelAnalysisService: ParallelAnalysisService = MockParallelAnalysisService(),
+		analysisService: AnalysisService? = nil,
+		parallelAnalysisService: ParallelAnalysisService? = nil,
 		analyticsService: AnalyticsService = ProductionAnalyticsService(),
 		permissionsService: PermissionsService = ProductionPermissionsService()
 	) {
@@ -71,8 +71,26 @@ final class ServiceContainer: ObservableObject {
 		self.usageMeter = usageMeter
 		self.subscriptionService = subscriptionService ?? SubscriptionService()
 		self.mediaService = mediaService
-		self.analysisService = analysisService
-		self.parallelAnalysisService = parallelAnalysisService
+		if let analysisService {
+			self.analysisService = analysisService
+		} else if env.apiBaseURL != nil {
+			self.analysisService = ProductionAnalysisService(env: env)
+		} else {
+			self.analysisService = MockAnalysisService()
+		}
+
+		if let parallelAnalysisService {
+			self.parallelAnalysisService = parallelAnalysisService
+		} else if let baseURL = env.apiBaseURL {
+			self.parallelAnalysisService = HTTPParallelAnalysisService(
+				baseURL: baseURL,
+				uploadPath: env.analyzePath == "/api/analyze-cat" ? "/api/upload" : env.analyzePath.replacingOccurrences(of: "analyze", with: "upload"),
+				analyzePath: env.analyzePath,
+				appKey: env.appKey
+			)
+		} else {
+			self.parallelAnalysisService = MockParallelAnalysisService()
+		}
 		self.analyticsService = analyticsService
 		self.permissionsService = permissionsService
 	}
