@@ -43,9 +43,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var contextualEmotion: ContextualEmotion? = nil
 	@Published var ownerAdvice: OwnerAdvice? = nil
 	@Published var catJokes: CatJokes? = nil
-	@Published var isUploadingPhoto: Bool = false
 	@Published var isAnalyzing: Bool = false
-	@Published var uploadedFileUri: String? = nil
+	@Published var partialAnalysisErrors: [String] = []
 	
 	// Cat detection state
 	@Published var catDetectionResult: CatDetectionResult? = nil
@@ -253,9 +252,8 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		contextualEmotion = nil
 		ownerAdvice = nil
 		catJokes = nil
-		isUploadingPhoto = false
 		isAnalyzing = false
-		uploadedFileUri = nil
+		partialAnalysisErrors = []
 		// Preserve cat detection results and frame sizing during analysis
 		// catDetectionResult = nil
 		// isDetectingCat = false
@@ -272,7 +270,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				return imageData
 			}
 			
-			// Optimize for Gemini Vision API: balance speed vs environmental context preservation
+			// Optimize for OpenAI vision analysis: balance detail and upload size
 			let compressed = ImageUtils.jpegDataFitting(
 				image, 
 				maxDimension: 1280,  // Preserve more detail for environmental context analysis
@@ -363,16 +361,9 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	
 	private func handleParallelAnalysisUpdate(_ update: ParallelAnalysisUpdate) {
 		switch update {
-		case .uploadStarted:
-			isUploadingPhoto = true
+		case .started:
 			progress = 0.1
-			Log.analysis.info("Upload started")
-		
-		case .uploadCompleted(let fileUri):
-			isUploadingPhoto = false
-			uploadedFileUri = fileUri
-			progress = 0.2
-			Log.analysis.info("Upload completed: \(fileUri, privacy: .private(mask: .hash))")
+			Log.analysis.info("Backend analysis started")
 			
 		case .emotionSummaryCompleted(let result):
 			emotionSummary = result
@@ -406,7 +397,12 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			// Don't stop spinner here - this is bonus content after main analysis
 			checkAnalysisCompletion()
 			
+		case .partialFailures(let errors):
+			partialAnalysisErrors = errors
+			Log.analysis.warning("Analysis returned partial errors: \(errors.joined(separator: "; "), privacy: .public)")
+			
 		case .failed(let message):
+			partialAnalysisErrors = [message]
 			transition(.error(message: message))
 			isAnalyzing = false
 			Haptics.error()

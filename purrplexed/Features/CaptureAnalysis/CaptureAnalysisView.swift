@@ -1,3 +1,27 @@
+
+private struct AnalysisErrorBanner: View {
+	let messages: [String]
+	
+	var body: some View {
+		VStack(alignment: .leading, spacing: 8) {
+			HStack(spacing: 8) {
+				Image(systemName: "exclamationmark.triangle.fill")
+					.foregroundColor(.orange)
+				Text("Some insights could not be generated")
+					.font(DS.Typography.captionFont())
+					.fontWeight(.semibold)
+			}
+			ForEach(messages, id: \.self) { message in
+				Text(message)
+					.font(DS.Typography.captionFont())
+					.foregroundColor(.secondary)
+			}
+		}
+		.padding(12)
+		.background(Color.orange.opacity(0.12))
+		.cornerRadius(12)
+	}
+}
 //
 //  CaptureAnalysisView.swift
 //  Purrplexed
@@ -227,7 +251,11 @@ struct CaptureAnalysisView: View {
 	}
 	
 	private var analysisResultsView: some View {
-		Group {
+		VStack(spacing: DS.Spacing.s) {
+			if !viewModel.partialAnalysisErrors.isEmpty {
+				AnalysisErrorBanner(messages: viewModel.partialAnalysisErrors)
+					.padding(.horizontal)
+			}
 			if viewModel.emotionSummary != nil || viewModel.state.isReady {
 				ParallelAnalysisResultsView(viewModel: viewModel)
 					.padding(.horizontal)

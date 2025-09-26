@@ -89,7 +89,6 @@ final class ServiceContainer: ObservableObject {
 		} else if let baseURL = env.apiBaseURL {
 			self.parallelAnalysisService = HTTPParallelAnalysisService(
 				baseURL: baseURL,
-				uploadPath: env.analyzePath == "/api/analyze-cat" ? "/api/upload" : env.analyzePath.replacingOccurrences(of: "analyze", with: "upload"),
 				analyzePath: env.analyzePath,
 				appKey: env.appKey
 			)

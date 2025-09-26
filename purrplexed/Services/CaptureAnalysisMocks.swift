@@ -45,112 +45,20 @@ final class MockPermissionsService: PermissionsService {
 }
 
 final class MockParallelAnalysisService: ParallelAnalysisService {
-	func uploadPhoto(_ photo: CapturedPhoto) async throws -> String {
-		try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s
-		return "mock://file/uri/12345"
-	}
-	
-	func analyzeEmotionSummary(fileUri: String) async throws -> EmotionSummary {
-		try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
-		
-		let scenarios = [
-			EmotionSummary(
-				emotion: "Relaxed stretch", 
-				intensity: "Low", 
-				description: "The cat is resting comfortably with loose muscles.", 
-				emoji: "😌", 
-				moodType: "relaxed", 
-				warningMessage: nil
-			),
-			EmotionSummary(
-				emotion: "Calm vigilance", 
-				intensity: "Medium", 
-				description: "The cat is alert but composed, watching the room.", 
-				emoji: "👀", 
-				moodType: "alert", 
-				warningMessage: nil
-			),
-			EmotionSummary(
-				emotion: "Playful focus", 
-				intensity: "High", 
-				description: "The cat looks poised to engage with something interesting.", 
-				emoji: "😼", 
-				moodType: "playful", 
-				warningMessage: nil
-			)
-		]
-		
-		return scenarios.randomElement()!
-	}
-	
-	func analyzeBodyLanguage(fileUri: String) async throws -> BodyLanguageAnalysis {
-		try? await Task.sleep(nanoseconds: 400_000_000) // 0.4s
-		return BodyLanguageAnalysis(posture: "Loafed with shoulders relaxed", ears: "Pointed forward", tail: "Resting along the body", eyes: "Soft and half-open", whiskers: "Neutral angle", overallMood: "relaxed")
-	}
-	
-	func analyzeContextualEmotion(fileUri: String) async throws -> ContextualEmotion {
-		try? await Task.sleep(nanoseconds: 350_000_000) // 0.35s
-		return ContextualEmotion(
-			contextClues: ["Soft lighting", "Comfortable furniture", "Quiet environment"], 
-			environmentalFactors: ["Indoor safe space", "No visible threats"], 
-			emotionalMeaning: ["Feeling secure and at home"]
-		)
-	}
-	
-	func analyzeOwnerAdvice(fileUri: String) async throws -> OwnerAdvice {
-		try? await Task.sleep(nanoseconds: 450_000_000) // 0.45s
-		return OwnerAdvice(
-			immediateActions: ["Continue providing a calm environment", "Keep regular feeding schedule"], 
-			longTermSuggestions: ["Maintain regular routine"], 
-			warningSigns: []
-		)
-	}
-	
-	func analyzeCatJokes(fileUri: String) async throws -> CatJokes {
-		try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
-		return CatJokes(jokes: [
-			"I'm not sleeping, I'm just resting my eyes... for 16 hours",
-			"This sunny spot is mine now. Don't even think about it.",
-			"I knocked that off the table for science. You're welcome."
-		])
-	}
-	
 	func analyzeParallel(photo: CapturedPhoto) async throws -> AsyncStream<ParallelAnalysisUpdate> {
 		AsyncStream { continuation in
 			Task {
-				continuation.yield(.uploadStarted)
+				continuation.yield(.started)
 				try? await Task.sleep(nanoseconds: 200_000_000)
-				let fileUri = "mock://file/uri/12345"
-				continuation.yield(.uploadCompleted(fileUri: fileUri))
-				
-				let emotionScenarios = [
-					EmotionSummary(
-						emotion: "Relaxed stretch", 
-						intensity: "Low", 
-						description: "The cat is resting comfortably with loose muscles.", 
-						emoji: "😌", 
-						moodType: "relaxed", 
-						warningMessage: nil
-					),
-					EmotionSummary(
-						emotion: "Calm vigilance", 
-						intensity: "Medium", 
-						description: "The cat is alert but composed, watching the room.", 
-						emoji: "👀", 
-						moodType: "alert", 
-						warningMessage: nil
-					),
-					EmotionSummary(
-						emotion: "Playful focus", 
-						intensity: "High", 
-						description: "The cat looks poised to engage with something interesting.", 
-						emoji: "😼", 
-						moodType: "playful", 
-						warningMessage: nil
-					)
-				]
-				
-				let summary = emotionScenarios.randomElement()!
+				let summary = EmotionSummary(
+					emotion: "Sunbeam drifter",
+					intensity: "low",
+					description: "The cat is melting into the warm light without a worry.",
+					emoji: "😴",
+					moodType: "relaxed",
+					postureHint: "body stretched out, paws open",
+					warningMessage: nil
+				)
 				continuation.yield(.emotionSummaryCompleted(summary))
 				
 				try? await Task.sleep(nanoseconds: 200_000_000)
