@@ -7,6 +7,7 @@
 
 import Foundation
 import CryptoKit
+import UIKit
 
 struct SingleAnalysisResponse: Decodable {
 	let summary: EmotionSummary?
@@ -147,7 +148,20 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 	}
 	
 	private func encodeImage(_ data: Data) -> String {
-		let base64 = data.base64EncodedString()
+		guard let image = UIImage(data: data) else {
+			Log.network.warning("Failed to decode image for downscaling; sending original data")
+			return "data:image/jpeg;base64,\(data.base64EncodedString())"
+		}
+		let maxDimension: CGFloat = 1024
+		let originalSize = image.size
+		let scaleFactor = min(1.0, maxDimension / max(originalSize.width, originalSize.height))
+		let targetSize = CGSize(width: originalSize.width * scaleFactor, height: originalSize.height * scaleFactor)
+		let renderer = UIGraphicsImageRenderer(size: targetSize)
+		let scaledData = renderer.jpegData(withCompressionQuality: 0.7) { _ in
+			image.draw(in: CGRect(origin: .zero, size: targetSize))
+		}
+		let base64 = scaledData.base64EncodedString()
+		Log.network.info("Encoded image downscaled from \(Int(originalSize.width))x\(Int(originalSize.height)) to \(Int(targetSize.width))x\(Int(targetSize.height)) size=\(scaledData.count) bytes")
 		return "data:image/jpeg;base64,\(base64)"
 	}
 	
