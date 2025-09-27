@@ -40,6 +40,7 @@ struct CaptureAnalysisView: View {
 	@State private var showCamera = false
 	@State private var showNoCameraAlert = false
 	@State private var showPermissionDeniedAlert = false
+	@State private var showShareComposer = false
 	@State private var randomCatEmoji = "🐈"
 	@State private var statusMessageIndex = 0
 	private let statusMessages = [
@@ -76,6 +77,9 @@ struct CaptureAnalysisView: View {
 						viewModel.didPickPhoto(data)
 					}
 				}
+			}
+			.sheet(isPresented: $showShareComposer) {
+				ShareComposerView(viewModel: viewModel)
 			}
 		}
 		.background(DS.Color.background)
@@ -252,21 +256,34 @@ struct CaptureAnalysisView: View {
 	}
 	
 	private var analyzeButton: some View {
-		Button(action: { viewModel.didTapAnalyze() }) {
-			if viewModel.isAnalyzing {
-				ProgressView()
-					.progressViewStyle(CircularProgressViewStyle(tint: .white))
-					.frame(maxWidth: .infinity)
-					.padding(.vertical, 14)
-			} else {
-				Text(Localized("action_analyze"))
-					.font(DS.Typography.buttonFont())
-					.frame(maxWidth: .infinity)
-					.padding(.vertical, 14)
+		HStack(spacing: 8) {
+			Button(action: { viewModel.didTapAnalyze() }) {
+				if viewModel.isAnalyzing {
+					ProgressView()
+						.progressViewStyle(CircularProgressViewStyle(tint: .white))
+						.frame(maxWidth: .infinity)
+						.padding(.vertical, 14)
+				} else {
+					Text(Localized("action_analyze"))
+						.font(DS.Typography.buttonFont())
+						.frame(maxWidth: .infinity)
+						.padding(.vertical, 14)
+				}
+			}
+			.buttonStyle(.borderedProminent)
+			.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing || viewModel.catDetectionBlocking)
+
+			if viewModel.emotionSummary != nil && viewModel.bodyLanguageAnalysis != nil && viewModel.contextualEmotion != nil && viewModel.ownerAdvice != nil {
+				Button(action: { showShareComposer = true }) {
+					Image(systemName: "square.and.arrow.up")
+						.font(.headline)
+						.frame(width: 52, height: 44)
+				}
+				.buttonStyle(.bordered)
+				.transition(.move(edge: .trailing).combined(with: .opacity))
+				.animation(.spring(response: 0.5, dampingFraction: 0.8), value: viewModel.ownerAdvice != nil)
 			}
 		}
-		.buttonStyle(.borderedProminent)
-		.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing || viewModel.catDetectionBlocking)
 		.padding(.horizontal)
 	}
 	
@@ -280,6 +297,12 @@ struct CaptureAnalysisView: View {
 				ParallelAnalysisResultsView(viewModel: viewModel)
 					.padding(.horizontal)
 					.transition(.opacity)
+				
+				// Share CTA appears only after all core analyses are complete
+				if viewModel.emotionSummary != nil && viewModel.bodyLanguageAnalysis != nil && viewModel.contextualEmotion != nil && viewModel.ownerAdvice != nil {
+					ShareResultsButton(viewModel: viewModel)
+						.padding(.horizontal)
+				}
 			}
 		}
 	}
@@ -511,6 +534,56 @@ struct ParallelAnalysisResultsView: View {
 				CatJokesContentView(jokes: jokes)
 			}
 		}
+	}
+}
+
+// MARK: - Share Button
+
+struct ShareResultsButton: View {
+	@ObservedObject var viewModel: CaptureAnalysisViewModel
+	@Environment(\.services) private var services
+	@State private var isSharing = false
+
+	var body: some View {
+		HStack {
+			Button(action: { handleShareTap() }) {
+				HStack(spacing: 8) {
+					Image(systemName: "square.and.arrow.up")
+					Text("Share Results")
+				}
+				.frame(maxWidth: .infinity)
+			}
+			.buttonStyle(.bordered)
+		}
+	}
+
+	private func handleShareTap() {
+		Task { @MainActor in
+			guard let services, let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+				  let root = windowScene.keyWindow?.rootViewController else { return }
+
+			let isPremium = await services.subscriptionService.isPremium
+			if services.env.featureSavePremium && !isPremium {
+				viewModel.showPaywall = true
+				return
+			}
+
+			let text = buildShareText()
+			let activityVC = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+			root.present(activityVC, animated: true)
+		}
+	}
+
+	private func buildShareText() -> String {
+		var parts: [String] = []
+		if let summary = viewModel.emotionSummary {
+			parts.append("\(summary.emoji) \(summary.emotion.capitalized): \(summary.description)")
+		}
+		if let advice = viewModel.ownerAdvice, !advice.immediateActionsBulletPoints.isEmpty {
+			let bullets = advice.immediateActionsBulletPoints.prefix(2).joined(separator: " • ")
+			parts.append("Advice: \(bullets)")
+		}
+		return parts.joined(separator: "\n")
 	}
 }
 

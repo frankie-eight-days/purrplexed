@@ -70,51 +70,147 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 	
 	func analyzeParallel(photo: CapturedPhoto) async throws -> AsyncStream<ParallelAnalysisUpdate> {
 		let imageFingerprint = shortHash(for: photo.imageData)
-		Log.network.info("Preparing analysis for fingerprint=\(imageFingerprint) size=\(photo.imageData.count) bytes")
+		Log.network.info("Preparing analysis (non-stream primary) fingerprint=\(imageFingerprint) size=\(photo.imageData.count) bytes")
 		let encodedImage = encodeImage(photo.imageData)
-		
 		return AsyncStream<ParallelAnalysisUpdate>(bufferingPolicy: .unbounded) { continuation in
 			let task = Task {
-				let overallStart = CFAbsoluteTimeGetCurrent()
-				var collectedErrors: [String] = []
-
-				do {
-					try Task.checkCancellation()
-					continuation.yield(.started)
-
-					// Step 1: Get emotion summary first (fast)
-					Log.network.info("Step 1: Getting emotion summary")
-					let summary = try await self.getSummary(encodedImage: encodedImage, imageFingerprint: imageFingerprint)
-					continuation.yield(.emotionSummaryCompleted(summary))
-					
-					// Step 2: Make parallel calls for detailed analyses
-					Log.network.info("Step 2: Starting parallel detailed analyses")
-					try await self.performParallelDetailedAnalyses(
-						encodedImage: encodedImage,
-						summary: summary,
-						imageFingerprint: imageFingerprint,
-						continuation: continuation,
-						collectedErrors: &collectedErrors
-					)
-					
-					let duration = CFAbsoluteTimeGetCurrent() - overallStart
-					Log.network.info("Analysis completed fingerprint=\(imageFingerprint) duration=\(String(format: "%.3f", duration))s")
-					continuation.finish()
-					
-				} catch is CancellationError {
-					Log.network.info("Parallel analysis cancelled")
-					continuation.finish()
-				} catch let error as AnalysisError {
-					Log.network.error("Parallel analysis failed fingerprint=\(imageFingerprint) error=\(error.localizedDescription, privacy: .public)")
-					continuation.yield(.failed(message: error.localizedDescription))
-					continuation.finish()
-				} catch {
-					Log.network.error("Parallel analysis failed fingerprint=\(imageFingerprint) error=\(error.localizedDescription, privacy: .public)")
-					continuation.yield(.failed(message: error.localizedDescription))
-					continuation.finish()
-				}
+				// Try fast non-stream first
+				await self.performNonStreamFallback(encodedImage: encodedImage, continuation: continuation)
 			}
 			continuation.onTermination = { @Sendable _ in task.cancel() }
+		}
+	}
+
+	private func handleSseLine(_ dataLine: String, continuation: AsyncStream<ParallelAnalysisUpdate>.Continuation) {
+		guard let data = dataLine.data(using: .utf8) else { return }
+		do {
+			let anyObj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+			guard let event = anyObj?["event"] as? String else { return }
+			let payload = anyObj?["payload"]
+			switch event {
+			case "started":
+				continuation.yield(.started)
+			case "summary":
+				if let p = payload, let model: EmotionSummary = try decodePayload(p) {
+					continuation.yield(.emotionSummaryCompleted(model))
+				}
+			case "bodyLanguage":
+				if let p = payload, let model: BodyLanguageAnalysis = try decodePayload(p) {
+					continuation.yield(.bodyLanguageCompleted(model))
+				}
+			case "contextualEmotion":
+				if let p = payload, let model: ContextualEmotion = try decodePayload(p) {
+					continuation.yield(.contextualEmotionCompleted(model))
+				}
+			case "ownerAdvice":
+				if let p = payload, let model: OwnerAdvice = try decodePayload(p) {
+					continuation.yield(.ownerAdviceCompleted(model))
+				}
+			case "catJokes":
+				if let p = payload, let model: CatJokes = try decodePayload(p) {
+					continuation.yield(.catJokesCompleted(model))
+				}
+			case "partialFailures":
+				if let p = payload, let errors: [String] = try decodePayload(p) {
+					continuation.yield(.partialFailures(errors))
+				}
+			case "error":
+				let message: String
+				if let p = payload as? [String: Any], let m = p["message"] as? String { message = m } else { message = "Analysis error" }
+				continuation.yield(.failed(message: message))
+			case "complete":
+				break
+			default:
+				break
+			}
+		} catch {
+			Log.network.warning("Failed to parse SSE line: \(error.localizedDescription, privacy: .public)")
+		}
+	}
+
+	private func decodePayload<T: Decodable>(_ any: Any) throws -> T? {
+		guard JSONSerialization.isValidJSONObject(any) else { return nil }
+		let data = try JSONSerialization.data(withJSONObject: any)
+		return try JSONDecoder().decode(T.self, from: data)
+	}
+
+	private struct FullAnalysisResponse: Decodable {
+		let summary: EmotionSummary
+		let bodyLanguage: BodyLanguageAnalysis
+		let contextualEmotion: ContextualEmotion
+		let ownerAdvice: OwnerAdvice
+		let catJokes: CatJokes?
+		let errors: [String]
+	}
+
+	private func performNonStreamFallback(encodedImage: String, continuation: AsyncStream<ParallelAnalysisUpdate>.Continuation) async {
+		do {
+			var request = URLRequest(url: baseURL.appendingPathComponent(analyzePath))
+			request.httpMethod = "POST"
+			request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+			if let appKey = appKey { request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization") }
+			let payload: [String: Any] = [
+				"images": [encodedImage],
+				"stream": false
+			]
+			request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+			let (data, response) = try await urlSession.data(for: request)
+			if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+				let decoded = try JSONDecoder().decode(FullAnalysisResponse.self, from: data)
+				continuation.yield(.started)
+				continuation.yield(.emotionSummaryCompleted(decoded.summary))
+				continuation.yield(.bodyLanguageCompleted(decoded.bodyLanguage))
+				continuation.yield(.contextualEmotionCompleted(decoded.contextualEmotion))
+				continuation.yield(.ownerAdviceCompleted(decoded.ownerAdvice))
+				if let jokes = decoded.catJokes { continuation.yield(.catJokesCompleted(jokes)) }
+				if !decoded.errors.isEmpty { continuation.yield(.partialFailures(decoded.errors)) }
+				continuation.finish()
+				return
+			}
+			// Non-2xx or decode failure: log and retry with SSE
+			let bodyText = String(data: data, encoding: .utf8) ?? ""
+			Log.network.error("Non-stream analysis failed: \(bodyText, privacy: .public)")
+			await self.performSseRetry(encodedImage: encodedImage, continuation: continuation)
+		} catch {
+			Log.network.warning("Non-stream decode error: \(error.localizedDescription, privacy: .public). Retrying SSE…")
+			await self.performSseRetry(encodedImage: encodedImage, continuation: continuation)
+		}
+	}
+
+	private func performSseRetry(encodedImage: String, continuation: AsyncStream<ParallelAnalysisUpdate>.Continuation) async {
+		let endpointURL = baseURL.appendingPathComponent(analyzePath)
+		var request = URLRequest(url: endpointURL)
+		request.httpMethod = "POST"
+		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+		if let appKey = appKey { request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization") }
+		let payload: [String: Any] = ["images": [encodedImage], "stream": true]
+		request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+		do {
+			let (bytes, response) = try await urlSession.bytes(for: request)
+			guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+				continuation.yield(.failed(message: "Server error"))
+				continuation.finish()
+				return
+			}
+			var currentDataLine = ""
+			for try await line in bytes.lines {
+				if line.hasPrefix("data:") {
+					let jsonPart = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+					currentDataLine = String(jsonPart)
+					continue
+				}
+				if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+					if !currentDataLine.isEmpty {
+						self.handleSseLine(currentDataLine, continuation: continuation)
+						currentDataLine = ""
+					}
+				}
+			}
+			continuation.finish()
+		} catch {
+			continuation.yield(.failed(message: error.localizedDescription))
+			continuation.finish()
 		}
 	}
 	
