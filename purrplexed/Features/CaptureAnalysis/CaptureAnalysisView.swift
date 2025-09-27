@@ -409,7 +409,7 @@ struct ParallelAnalysisResultsView: View {
 				.transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
 			}
 			
-			// Expandable Tray Cards for other analyses
+			// Expandable Tray Cards for other analyses with staggered animations
 			ForEach(Array(AnalysisSection.allCases.enumerated()), id: \.element.rawValue) { index, section in
 				if shouldShowSection(section) {
 					AnalysisTrayCard(
@@ -418,7 +418,16 @@ struct ParallelAnalysisResultsView: View {
 						onToggle: { toggleSection(section) },
 						content: contentForSection(section)
 					)
-					.transition(.asymmetric(insertion: .move(edge: index.isMultiple(of: 2) ? .trailing : .leading).combined(with: .opacity), removal: .opacity))
+					.transition(.asymmetric(
+						insertion: .move(edge: index.isMultiple(of: 2) ? .leading : .trailing)
+							.combined(with: .opacity.combined(with: .scale(scale: 0.8))),
+						removal: .opacity.combined(with: .scale(scale: 0.9))
+					))
+					.animation(
+						.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0.1)
+							.delay(Double(index) * 0.15), // Stagger by 150ms per card
+						value: shouldShowSection(section)
+					)
 				}
 			}
 			

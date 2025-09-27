@@ -25,34 +25,34 @@ struct BackendParallelErrorResponse: Decodable {
 	let message: String?
 }
 
-private struct StreamCompletePayload: Decodable {
+// MARK: - Individual Analysis Response Types
+
+struct SummaryResponse: Decodable {
 	let summary: EmotionSummary
-	let bodyLanguage: BodyLanguageAnalysis
-	let contextualEmotion: ContextualEmotion
-	let ownerAdvice: OwnerAdvice
-	let catJokes: CatJokes?
-	let errors: [String]
-	
-	private enum CodingKeys: String, CodingKey {
-		case summary
-		case bodyLanguage
-		case contextualEmotion
-		case ownerAdvice
-		case catJokes
-		case errors
-	}
-	
-	init(from decoder: Decoder) throws {
-		let container = try decoder.container(keyedBy: CodingKeys.self)
-		summary = try container.decode(EmotionSummary.self, forKey: .summary)
-		bodyLanguage = try container.decode(BodyLanguageAnalysis.self, forKey: .bodyLanguage)
-		contextualEmotion = try container.decode(ContextualEmotion.self, forKey: .contextualEmotion)
-		ownerAdvice = try container.decode(OwnerAdvice.self, forKey: .ownerAdvice)
-		catJokes = try container.decodeIfPresent(CatJokes.self, forKey: .catJokes)
-		errors = try container.decodeIfPresent([String].self, forKey: .errors) ?? []
-	}
+	let success: Bool
 }
 
+struct BodyLanguageResponse: Decodable {
+	let bodyLanguage: BodyLanguageAnalysis
+	let success: Bool
+}
+
+struct ContextualEmotionResponse: Decodable {
+	let contextualEmotion: ContextualEmotion
+	let success: Bool
+}
+
+struct OwnerAdviceResponse: Decodable {
+	let ownerAdvice: OwnerAdvice
+	let success: Bool
+}
+
+struct CatJokesResponse: Decodable {
+	let catJokes: CatJokes?
+	let success: Bool
+}
+
+// Legacy streaming structures - keeping for backward compatibility if needed
 private struct StreamErrorPayload: Decodable { let message: String? }
 
 final class HTTPParallelAnalysisService: ParallelAnalysisService {
@@ -76,32 +76,31 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		return AsyncStream<ParallelAnalysisUpdate>(bufferingPolicy: .unbounded) { continuation in
 			let task = Task {
 				let overallStart = CFAbsoluteTimeGetCurrent()
-				var summary: EmotionSummary?
-				var bodyLanguage: BodyLanguageAnalysis?
-				var contextual: ContextualEmotion?
-				var ownerAdvice: OwnerAdvice?
-				var catJokes: CatJokes?
 				var collectedErrors: [String] = []
-				let decoder = JSONDecoder()
 
 				do {
 					try Task.checkCancellation()
 					continuation.yield(.started)
 
-					try await self.streamAnalysis(
+					// Step 1: Get emotion summary first (fast)
+					Log.network.info("Step 1: Getting emotion summary")
+					let summary = try await self.getSummary(encodedImage: encodedImage, imageFingerprint: imageFingerprint)
+					continuation.yield(.emotionSummaryCompleted(summary))
+					
+					// Step 2: Make parallel calls for detailed analyses
+					Log.network.info("Step 2: Starting parallel detailed analyses")
+					try await self.performParallelDetailedAnalyses(
 						encodedImage: encodedImage,
+						summary: summary,
 						imageFingerprint: imageFingerprint,
-						summary: &summary,
-						bodyLanguage: &bodyLanguage,
-						contextual: &contextual,
-						ownerAdvice: &ownerAdvice,
-						catJokes: &catJokes,
-						collectedErrors: &collectedErrors,
-						overallStart: overallStart,
 						continuation: continuation,
-						decoder: decoder
+						collectedErrors: &collectedErrors
 					)
-					return
+					
+					let duration = CFAbsoluteTimeGetCurrent() - overallStart
+					Log.network.info("Analysis completed fingerprint=\(imageFingerprint) duration=\(String(format: "%.3f", duration))s")
+					continuation.finish()
+					
 				} catch is CancellationError {
 					Log.network.info("Parallel analysis cancelled")
 					continuation.finish()
@@ -119,175 +118,223 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		}
 	}
 	
-	private func streamAnalysis(
-		encodedImage: String,
-		imageFingerprint: String,
-		summary: inout EmotionSummary?,
-		bodyLanguage: inout BodyLanguageAnalysis?,
-		contextual: inout ContextualEmotion?,
-		ownerAdvice: inout OwnerAdvice?,
-		catJokes: inout CatJokes?,
-		collectedErrors: inout [String],
-		overallStart: CFAbsoluteTime,
-		continuation: AsyncStream<ParallelAnalysisUpdate>.Continuation,
-		decoder: JSONDecoder
-	) async throws {
-		var payload: [String: Any] = [
-			"images": [encodedImage],
-			"stream": true
+	// MARK: - New Parallel Analysis Implementation
+	
+	private func getSummary(encodedImage: String, imageFingerprint: String) async throws -> EmotionSummary {
+		let payload: [String: Any] = [
+			"images": [encodedImage]
 		]
-		if !collectedErrors.isEmpty {
-			payload["context"] = ["errors": collectedErrors]
-		}
 		let body = try JSONSerialization.data(withJSONObject: payload)
 		
-		var request = URLRequest(url: baseURL.appendingPathComponent(self.analyzePath))
+		var request = URLRequest(url: baseURL.appendingPathComponent("/api/analyze/summary"))
 		request.httpMethod = "POST"
 		request.httpBody = body
 		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-		request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 		if let appKey = appKey {
 			request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
 		}
 		
-		Log.network.info("POST \(request.url?.absoluteString ?? self.analyzePath, privacy: .public) stream=true images=\(1) (after preflight)")
+		Log.network.info("POST /api/analyze/summary fingerprint=\(imageFingerprint)")
 		
-		let (bytes, response) = try await urlSession.bytes(for: request)
+		let (data, response) = try await urlSession.data(for: request)
 		guard let httpResponse = response as? HTTPURLResponse else {
 			throw AnalysisError.networkError("Invalid response from server")
 		}
 		
-		Log.network.info("Analysis streaming status=\(httpResponse.statusCode)")
 		guard (200..<300).contains(httpResponse.statusCode) else {
-			var errorData = Data()
-			for try await byte in bytes {
-				errorData.append(byte)
-				if errorData.count > 4096 { break }
+			if let errorResponse = try? JSONDecoder().decode(BackendParallelErrorResponse.self, from: data) {
+				throw AnalysisError.serverError(errorResponse.message ?? errorResponse.error ?? "Summary analysis failed")
 			}
-			if let backendError = try? JSONDecoder().decode(BackendParallelErrorResponse.self, from: errorData) {
-				throw AnalysisError.serverError(backendError.message ?? backendError.error ?? "Analysis service temporarily unavailable")
-			}
-			let fallbackText = String(data: errorData, encoding: .utf8) ?? ""
-			throw AnalysisError.serverError("Analysis service returned status \(httpResponse.statusCode) \(fallbackText)")
+			throw AnalysisError.serverError("Summary analysis returned status \(httpResponse.statusCode)")
 		}
 		
-		for try await line in bytes.lines {
-			if Task.isCancelled { break }
-			guard line.hasPrefix("data:") else { continue }
-			let jsonString = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-			guard !jsonString.isEmpty, let data = jsonString.data(using: .utf8) else { continue }
-			guard let jsonEvent = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-			      let event = jsonEvent["event"] as? String else { continue }
-			let payload = jsonEvent["payload"]
+		let summaryResponse = try JSONDecoder().decode(SummaryResponse.self, from: data)
+		return summaryResponse.summary
+	}
+	
+	private func performParallelDetailedAnalyses(
+		encodedImage: String,
+		summary: EmotionSummary,
+		imageFingerprint: String,
+		continuation: AsyncStream<ParallelAnalysisUpdate>.Continuation,
+		collectedErrors: inout [String]
+	) async throws {
+		var localErrors: [String] = []
+		// Create parallel tasks for each detailed analysis
+		let bodyLanguageTask = Task {
+			try await getBodyLanguageAnalysis(encodedImage: encodedImage, summary: summary, imageFingerprint: imageFingerprint)
+		}
+		
+		let contextualTask = Task {
+			try await getContextualEmotionAnalysis(encodedImage: encodedImage, summary: summary, imageFingerprint: imageFingerprint)
+		}
+		
+		let ownerAdviceTask = Task {
+			try await getOwnerAdviceAnalysis(encodedImage: encodedImage, summary: summary, imageFingerprint: imageFingerprint)
+		}
+		
+		let catJokesTask = Task {
+			try await getCatJokesAnalysis(encodedImage: encodedImage, summary: summary, imageFingerprint: imageFingerprint)
+		}
+		
+		// Process results as they complete using TaskGroup
+		await withTaskGroup(of: String?.self) { group in
+			// Body Language Analysis
+			group.addTask {
+				do {
+					let result = try await bodyLanguageTask.value
+					continuation.yield(.bodyLanguageCompleted(result))
+					return nil
+				} catch {
+					let errorMessage = "Body language analysis failed: \(error.localizedDescription)"
+					Log.network.error("Body language analysis failed: \(error.localizedDescription, privacy: .public)")
+					return errorMessage
+				}
+			}
 			
-			switch event {
-			case "started":
-				continue
-			case "summary":
-				if let payload {
-					let decoded: EmotionSummary = try decodePayload(payload, decoder: decoder)
-					summary = decoded
-					continuation.yield(.emotionSummaryCompleted(decoded))
-				}
-			case "bodyLanguage":
-				if let payload {
-					let decoded: BodyLanguageAnalysis = try decodePayload(payload, decoder: decoder)
-					bodyLanguage = decoded
-					continuation.yield(.bodyLanguageCompleted(decoded))
-				}
-			case "contextualEmotion":
-				if let payload {
-					let decoded: ContextualEmotion = try decodePayload(payload, decoder: decoder)
-					contextual = decoded
-					continuation.yield(.contextualEmotionCompleted(decoded))
-				}
-			case "ownerAdvice":
-				if let payload {
-					let decoded: OwnerAdvice = try decodePayload(payload, decoder: decoder)
-					ownerAdvice = decoded
-					continuation.yield(.ownerAdviceCompleted(decoded))
-				}
-			case "catJokes":
-				if let payload {
-					let decoded: CatJokes = try decodePayload(payload, decoder: decoder)
-					catJokes = decoded
-					continuation.yield(.catJokesCompleted(decoded))
-				}
-			case "partialFailures":
-				if let payload {
-					let decoded: [String] = try decodePayload(payload, decoder: decoder)
-					collectedErrors.append(contentsOf: decoded)
-					continuation.yield(.partialFailures(decoded))
-				}
-			case "error":
-				let message: String
-				if let payload {
-					let decoded: StreamErrorPayload = try decodePayload(payload, decoder: decoder)
-					message = decoded.message ?? "Analysis failed"
-				} else {
-					message = "Analysis failed"
-				}
-				Log.network.error("Parallel analysis failed fingerprint=\(imageFingerprint) error=\(message, privacy: .public)")
-				continuation.yield(.failed(message: message))
-				continuation.finish()
-				return
-		case "complete":
-			if let payload {
-				let final: StreamCompletePayload = try decodePayload(payload, decoder: decoder)
-				if summary == nil {
-					summary = final.summary
-					continuation.yield(.emotionSummaryCompleted(final.summary))
-				}
-				if bodyLanguage == nil {
-					bodyLanguage = final.bodyLanguage
-					continuation.yield(.bodyLanguageCompleted(final.bodyLanguage))
-				}
-				if contextual == nil {
-					contextual = final.contextualEmotion
-					continuation.yield(.contextualEmotionCompleted(final.contextualEmotion))
-				}
-				if ownerAdvice == nil {
-					ownerAdvice = final.ownerAdvice
-					continuation.yield(.ownerAdviceCompleted(final.ownerAdvice))
-				}
-				if catJokes == nil, let jokes = final.catJokes {
-					catJokes = jokes
-					continuation.yield(.catJokesCompleted(jokes))
-				}
-				let newErrors = final.errors.filter { !collectedErrors.contains($0) }
-				if !newErrors.isEmpty {
-					collectedErrors.append(contentsOf: newErrors)
-					continuation.yield(.partialFailures(newErrors))
+			// Contextual Emotion Analysis
+			group.addTask {
+				do {
+					let result = try await contextualTask.value
+					continuation.yield(.contextualEmotionCompleted(result))
+					return nil
+				} catch {
+					let errorMessage = "Contextual emotion analysis failed: \(error.localizedDescription)"
+					Log.network.error("Contextual emotion analysis failed: \(error.localizedDescription, privacy: .public)")
+					return errorMessage
 				}
 			}
-			let duration = CFAbsoluteTimeGetCurrent() - overallStart
-			Log.network.info("Analysis completed fingerprint=\(imageFingerprint) duration=\(String(format: "%.3f", duration))s")
-			continuation.finish()
-			return
-			default:
-				break
+			
+			// Owner Advice Analysis
+			group.addTask {
+				do {
+					let result = try await ownerAdviceTask.value
+					continuation.yield(.ownerAdviceCompleted(result))
+					return nil
+				} catch {
+					let errorMessage = "Owner advice analysis failed: \(error.localizedDescription)"
+					Log.network.error("Owner advice analysis failed: \(error.localizedDescription, privacy: .public)")
+					return errorMessage
+				}
+			}
+			
+			// Cat Jokes Analysis (optional)
+			group.addTask {
+				do {
+					let result = try await catJokesTask.value
+					if let jokes = result {
+						continuation.yield(.catJokesCompleted(jokes))
+					}
+					return nil
+				} catch {
+					Log.network.warning("Cat jokes analysis failed (optional): \(error.localizedDescription)")
+					return nil // Don't report cat jokes errors as they're optional
+				}
+			}
+			
+			// Collect errors from completed tasks
+			for await errorMessage in group {
+				if let error = errorMessage {
+					localErrors.append(error)
+				}
 			}
 		}
 		
-		if Task.isCancelled {
-			Log.network.info("Parallel analysis cancelled")
-			return
+		// Add local errors to the collected errors
+		collectedErrors.append(contentsOf: localErrors)
+		
+		if !localErrors.isEmpty {
+			continuation.yield(.partialFailures(localErrors))
 		}
-
-		if summary == nil {
-			let message = collectedErrors.last ?? "Analysis interrupted"
-			Log.network.error("Parallel analysis incomplete fingerprint=\(imageFingerprint) message=\(message, privacy: .public)")
-			continuation.yield(.failed(message: message))
+	}
+	
+	// MARK: - Individual Analysis Methods
+	
+	private func getBodyLanguageAnalysis(encodedImage: String, summary: EmotionSummary, imageFingerprint: String) async throws -> BodyLanguageAnalysis {
+		return try await performAnalysisRequest(
+			endpoint: "/api/analyze/body-language",
+			encodedImage: encodedImage,
+			summary: summary,
+			imageFingerprint: imageFingerprint,
+			responseType: BodyLanguageResponse.self
+		).bodyLanguage
+	}
+	
+	private func getContextualEmotionAnalysis(encodedImage: String, summary: EmotionSummary, imageFingerprint: String) async throws -> ContextualEmotion {
+		return try await performAnalysisRequest(
+			endpoint: "/api/analyze/contextual-emotion",
+			encodedImage: encodedImage,
+			summary: summary,
+			imageFingerprint: imageFingerprint,
+			responseType: ContextualEmotionResponse.self
+		).contextualEmotion
+	}
+	
+	private func getOwnerAdviceAnalysis(encodedImage: String, summary: EmotionSummary, imageFingerprint: String) async throws -> OwnerAdvice {
+		return try await performAnalysisRequest(
+			endpoint: "/api/analyze/owner-advice",
+			encodedImage: encodedImage,
+			summary: summary,
+			imageFingerprint: imageFingerprint,
+			responseType: OwnerAdviceResponse.self
+		).ownerAdvice
+	}
+	
+	private func getCatJokesAnalysis(encodedImage: String, summary: EmotionSummary, imageFingerprint: String) async throws -> CatJokes? {
+		let response = try await performAnalysisRequest(
+			endpoint: "/api/analyze/cat-jokes",
+			encodedImage: encodedImage,
+			summary: summary,
+			imageFingerprint: imageFingerprint,
+			responseType: CatJokesResponse.self
+		)
+		return response.catJokes
+	}
+	
+	private func performAnalysisRequest<T: Decodable>(
+		endpoint: String,
+		encodedImage: String,
+		summary: EmotionSummary,
+		imageFingerprint: String,
+		responseType: T.Type
+	) async throws -> T {
+		let payload: [String: Any] = [
+			"images": [encodedImage],
+			"summary": [
+				"emotion": summary.emotion,
+				"intensity": summary.intensity,
+				"description": summary.description,
+				"emoji": summary.emoji,
+				"moodType": summary.moodType,
+				"postureHint": summary.postureHint,
+				"warningMessage": summary.warningMessage as Any
+			]
+		]
+		let body = try JSONSerialization.data(withJSONObject: payload)
+		
+		var request = URLRequest(url: baseURL.appendingPathComponent(endpoint))
+		request.httpMethod = "POST"
+		request.httpBody = body
+		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		if let appKey = appKey {
+			request.setValue("Bearer \(appKey)", forHTTPHeaderField: "Authorization")
 		}
 		
-		let duration = CFAbsoluteTimeGetCurrent() - overallStart
-		let summaryDone = summary != nil
-		let bodyDone = bodyLanguage != nil
-		let contextDone = contextual != nil
-		let adviceDone = ownerAdvice != nil
-		let jokesDone = catJokes != nil
-		Log.network.info("Streaming phase finished fingerprint=\(imageFingerprint) duration=\(String(format: "%.3f", duration))s (summary: \(summaryDone), body: \(bodyDone), context: \(contextDone), advice: \(adviceDone), jokes: \(jokesDone))")
-		continuation.finish()
+		Log.network.info("POST \(endpoint) fingerprint=\(imageFingerprint)")
+		
+		let (data, response) = try await urlSession.data(for: request)
+		guard let httpResponse = response as? HTTPURLResponse else {
+			throw AnalysisError.networkError("Invalid response from server")
+		}
+		
+		guard (200..<300).contains(httpResponse.statusCode) else {
+			if let errorResponse = try? JSONDecoder().decode(BackendParallelErrorResponse.self, from: data) {
+				throw AnalysisError.serverError(errorResponse.message ?? errorResponse.error ?? "\(endpoint) analysis failed")
+			}
+			throw AnalysisError.serverError("\(endpoint) analysis returned status \(httpResponse.statusCode)")
+		}
+		
+		return try JSONDecoder().decode(responseType, from: data)
 	}
 	
 	private func encodeImage(_ data: Data) -> String {
@@ -308,26 +355,7 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 		return "data:image/jpeg;base64,\(base64)"
 	}
 	
-	private func decodePayload<T: Decodable>(_ payload: Any, decoder: JSONDecoder) throws -> T {
-		let data = try payloadData(from: payload)
-		return try decoder.decode(T.self, from: data)
-	}
-	
-	private func payloadData(from payload: Any) throws -> Data {
-		if JSONSerialization.isValidJSONObject(payload) {
-			return try JSONSerialization.data(withJSONObject: payload)
-		}
-		if let string = payload as? String {
-			return try JSONEncoder().encode(string)
-		}
-		if let number = payload as? NSNumber {
-			return try JSONEncoder().encode(number.doubleValue)
-		}
-		if payload is NSNull {
-			return Data("null".utf8)
-		}
-		throw AnalysisError.invalidResponse("Unsupported payload type: \(type(of: payload))")
-	}
+	// MARK: - Utility Methods
 	
 	private func shortHash(for data: Data) -> String {
 		let digest = SHA256.hash(data: data)
