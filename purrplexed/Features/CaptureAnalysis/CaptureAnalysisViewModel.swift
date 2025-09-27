@@ -366,32 +366,42 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			Log.analysis.info("Backend analysis started")
 			
 		case .emotionSummaryCompleted(let result):
+		withAnimation(.spring(response: 0.6, dampingFraction: 0.85, blendDuration: 0.2)) {
 			emotionSummary = result
-			progress = max(progress, 0.4)
-			Log.analysis.info("Emotion summary completed")
-			stopSpinnerOnFirstResponse()
+		}
+		progress = max(progress, 0.4)
+		Log.analysis.info("Emotion summary completed")
+		stopSpinnerOnFirstResponse()
 			
 		case .bodyLanguageCompleted(let result):
+		withAnimation(.spring(response: 0.6, dampingFraction: 0.85, blendDuration: 0.2)) {
 			bodyLanguageAnalysis = result
-			progress = max(progress, 0.6)
-			Log.analysis.info("Body language analysis completed")
-			stopSpinnerOnFirstResponse()
+		}
+		progress = max(progress, 0.6)
+		Log.analysis.info("Body language analysis completed")
+		stopSpinnerOnFirstResponse()
 			
 		case .contextualEmotionCompleted(let result):
+		withAnimation(.spring(response: 0.6, dampingFraction: 0.85, blendDuration: 0.2)) {
 			contextualEmotion = result
-			progress = max(progress, 0.8)
-			Log.analysis.info("Contextual emotion analysis completed")
-			stopSpinnerOnFirstResponse()
+		}
+		progress = max(progress, 0.8)
+		Log.analysis.info("Contextual emotion analysis completed")
+		stopSpinnerOnFirstResponse()
 			
 		case .ownerAdviceCompleted(let result):
+		withAnimation(.spring(response: 0.6, dampingFraction: 0.85, blendDuration: 0.2)) {
 			ownerAdvice = result
+		}
 			progress = max(progress, 0.8)
 			Log.analysis.info("Owner advice completed")
 			stopSpinnerOnFirstResponse()
 			checkAnalysisCompletion()
 			
 		case .catJokesCompleted(let result):
+		withAnimation(.spring(response: 0.6, dampingFraction: 0.85, blendDuration: 0.2)) {
 			catJokes = result
+		}
 			progress = 1.0
 			Log.analysis.info("Cat jokes completed")
 			// Don't stop spinner here - this is bonus content after main analysis

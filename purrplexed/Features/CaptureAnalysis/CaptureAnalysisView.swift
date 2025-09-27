@@ -41,6 +41,14 @@ struct CaptureAnalysisView: View {
 	@State private var showNoCameraAlert = false
 	@State private var showPermissionDeniedAlert = false
 	@State private var randomCatEmoji = "🐈"
+	@State private var statusMessageIndex = 0
+	private let statusMessages = [
+		"Analyzing whiskers…",
+		"Reviewing posture…",
+		"Decoding emotions…",
+		"Drafting advice…"
+	]
+	private let statusTimer = Timer.publish(every: 1.8, on: .main, in: .common).autoconnect()
 	
 	private let catEmojis = ["🐈", "😹", "😻", "😼", "😽", "🙀", "😿", "😾", "🐅", "🐆"]
 
@@ -51,6 +59,7 @@ struct CaptureAnalysisView: View {
 				catFocusButtonView
 				noCatDetectedBanner
 				analyzeButton
+				analysisStatusTicker
 				analysisResultsView
 				Spacer()
 			}
@@ -71,6 +80,17 @@ struct CaptureAnalysisView: View {
 		}
 		.background(DS.Color.background)
 		.onAppear(perform: setup)
+		.onReceive(statusTimer) { _ in
+			guard viewModel.isAnalyzing else { return }
+			withAnimation(.easeInOut(duration: 0.35)) {
+				statusMessageIndex = (statusMessageIndex + 1) % statusMessages.count
+			}
+		}
+		.onChange(of: viewModel.isAnalyzing) { isAnalyzing in
+			if isAnalyzing {
+				statusMessageIndex = Int.random(in: 0..<statusMessages.count)
+			}
+		}
 	}
 	
 	private func setup() {
@@ -262,6 +282,19 @@ struct CaptureAnalysisView: View {
 					.transition(.opacity)
 			}
 		}
+	}
+
+	private var analysisStatusTicker: some View {
+		Group {
+			if viewModel.isAnalyzing {
+				Text(statusMessages[statusMessageIndex])
+					.font(DS.Typography.captionFont())
+					.foregroundColor(.secondary)
+					.padding(.top, 8)
+					.transition(.opacity.combined(with: .scale))
+			}
+		}
+		.animation(.easeInOut(duration: 0.35), value: viewModel.isAnalyzing)
 	}
 	
 	private func handleCameraAction() {
