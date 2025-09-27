@@ -415,6 +415,7 @@ struct ParallelAnalysisResultsView: View {
 					AnalysisTrayCard(
 						section: section,
 						isExpanded: expandedSections.contains(section),
+						isLoading: isLoading(for: section),
 						onToggle: { toggleSection(section) },
 						content: contentForSection(section)
 					)
@@ -452,15 +453,33 @@ struct ParallelAnalysisResultsView: View {
 	}
 	
 	private func shouldShowSection(_ section: AnalysisSection) -> Bool {
+		// Once the summary is loaded, show the core analysis sections (in a loading state if needed)
+		if viewModel.emotionSummary != nil {
+			switch section {
+			case .bodyLanguage, .contextualEmotion, .ownerAdvice:
+				return true
+			case .catJokes:
+				// Only show cat jokes when the data is present, as it's optional content
+				return viewModel.catJokes != nil
+			}
+		}
+		// Fallback for cat jokes in case they load without a summary (unlikely but safe)
+		if section == .catJokes {
+			return viewModel.catJokes != nil
+		}
+		return false
+	}
+	
+	private func isLoading(for section: AnalysisSection) -> Bool {
 		switch section {
 		case .bodyLanguage:
-			return viewModel.bodyLanguageAnalysis != nil
+			return viewModel.bodyLanguageAnalysis == nil
 		case .contextualEmotion:
-			return viewModel.contextualEmotion != nil
+			return viewModel.contextualEmotion == nil
 		case .ownerAdvice:
-			return viewModel.ownerAdvice != nil
+			return viewModel.ownerAdvice == nil
 		case .catJokes:
-			return viewModel.catJokes != nil
+			return false // Cat jokes view is only shown when loaded
 		}
 	}
 	
@@ -500,6 +519,7 @@ struct ParallelAnalysisResultsView: View {
 struct AnalysisTrayCard<Content: View>: View {
 	let section: ParallelAnalysisResultsView.AnalysisSection
 	let isExpanded: Bool
+	let isLoading: Bool
 	let onToggle: () -> Void
 	let content: Content
 	
@@ -514,16 +534,24 @@ struct AnalysisTrayCard<Content: View>: View {
 					.fontWeight(.medium)
 					.foregroundColor(.primary)
 				Spacer()
+				if isLoading {
+					ProgressView()
+						.progressViewStyle(CircularProgressViewStyle())
+						.scaleEffect(0.7)
+						.padding(.trailing, 4)
+				}
 				Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
 					.font(.caption)
 					.foregroundColor(.secondary)
+					.opacity(isLoading ? 0 : 1)
 			}
 			.padding()
 			.contentShape(Rectangle())
 			.onTapGesture(perform: onToggle)
+			.allowsHitTesting(!isLoading)
 			
 			// Content
-			if isExpanded {
+			if isExpanded, !isLoading {
 				content
 					.padding(.horizontal)
 					.padding(.bottom)
