@@ -23,10 +23,15 @@ enum ShareImageStyle {
 
     static let maxCaptionWidthMultiplier: CGFloat = 0.8
 
+    static let stickerWidthRatio: CGFloat = 0.08
+    static let stickerMinFontSize: CGFloat = 32
+    static let stickerReferenceWidth: CGFloat = 400
+
     // Export presets
     static let storyExportSize = CGSize(width: 1080, height: 1920)
     static let squareExportSize = CGSize(width: 1080, height: 1080)
 
-    static let maxOriginalExportDimension: CGFloat = 2048
+    static let maxOriginalExportDimension: CGFloat = 4096
+    static let preRenderMaxDimension: CGFloat = 2048
     static let maxRenderScale: CGFloat = 2.0
 }

@@ -11,6 +11,7 @@ struct ShareCanvasView: View {
         GeometryReader { proxy in
             let aspect = composition.canvasAspectRatio()
             let canvasFrame = fittedRect(in: proxy.size, aspect: aspect)
+            let sizeNormalization = composition.canvasMode == .original ? max(1.0, max(canvasFrame.width, canvasFrame.height) / ShareImageStyle.stickerReferenceWidth) : 1.0
 
             ZStack {
                 // Background for non-original modes
@@ -28,7 +29,7 @@ struct ShareCanvasView: View {
                         .clipped()
 
                     ForEach(sortedOverlays(composition.overlays)) { item in
-                        overlayView(for: item, canvasSize: canvasFrame.size)
+                        overlayView(for: item, canvasSize: canvasFrame.size, sizeNormalization: sizeNormalization)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
                                     .stroke(selectedOverlayID == item.id ? Color.accentColor : Color.clear, lineWidth: 2)
@@ -62,7 +63,7 @@ struct ShareCanvasView: View {
         }
     }
 
-    private func overlayView(for item: OverlayItem, canvasSize: CGSize) -> some View {
+    private func overlayView(for item: OverlayItem, canvasSize: CGSize, sizeNormalization: CGFloat) -> some View {
         let point = CGPoint(x: item.positionNormalized.x * canvasSize.width,
                             y: item.positionNormalized.y * canvasSize.height)
 
@@ -79,7 +80,7 @@ struct ShareCanvasView: View {
                     .fixedSize(horizontal: false, vertical: true)
             case .stickerEmoji(let text):
                 Text(text)
-                    .font(.system(size: max(32, canvasSize.width * 0.08)))
+                    .font(.system(size: max(ShareImageStyle.stickerMinFontSize, canvasSize.width * ShareImageStyle.stickerWidthRatio / sizeNormalization)))
             case .watermark:
                 Text("Made with Purrplexed")
                     .font(.system(size: ShareImageStyle.watermarkFontSize, weight: .medium, design: .rounded))

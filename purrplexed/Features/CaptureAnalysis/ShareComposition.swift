@@ -59,6 +59,14 @@ extension ShareComposition {
     }
 }
 
+extension ShareComposition {
+    func withBaseImage(_ image: UIImage) -> ShareComposition {
+        var updated = self
+        updated.baseImage = image
+        return updated
+    }
+}
+
 extension UIImage {
     var hashSignature: String {
         guard let data = self.jpegData(compressionQuality: 0.5) else {

@@ -36,6 +36,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var progress: Double = 0
 	@Published var permissionPrompt: String? = nil
 	@Published var thumbnailData: Data? = nil
+	@Published private(set) var originalImageData: Data? = nil
 	
 	// Parallel analysis results
 	@Published var emotionSummary: EmotionSummary? = nil
@@ -148,6 +149,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			Haptics.impact(.light)
 			do {
 				let photo = try await self.media.capturePhoto()
+				self.originalImageData = photo.imageData
 				// Compress image for faster analysis while keeping original quality for thumbnail
 				self.thumbnailData = await self.compressImageForAnalysis(photo.imageData)
 				// No auto-analysis; wait for explicit Analyze CTA
@@ -171,6 +173,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 				self.catDetectionBlocking = false
 			}
 			
+			self.originalImageData = data
 			// Compress picked photo for faster analysis
 			self.thumbnailData = await self.compressImageForAnalysis(data)
 			self.state = .idle

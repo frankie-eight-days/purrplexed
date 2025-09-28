@@ -18,6 +18,7 @@ struct ShareComposerView: View {
     @State private var cachedShareImage: UIImage?
     @State private var cachedCompositionSignature: String?
     @State private var cachedTargetSize: CGSize = .zero
+    @State private var cachedExportScale: CGFloat = 1.0
     @State private var preRenderTask: Task<Void, Never>?
     
     private var captionOptions: [String] {
@@ -116,28 +117,11 @@ struct ShareComposerView: View {
                 }
             ))
             .onAppear {
-                if composition == nil,
-                   let data = viewModel.thumbnailData,
-                   let image = UIImage(data: data) {
-                    let initialComposition = ShareComposition.default(for: image, initialCaption: captionOptions.first ?? "")
-                    composition = initialComposition
-                    if previewCanvasSize == .zero {
-                        previewCanvasSize = initialComposition.targetSizePoints()
-                    }
-                    if let comp = composition {
-                        schedulePreRender(for: comp)
-                    }
-                } else if let comp = composition, previewCanvasSize == .zero {
-                    previewCanvasSize = comp.targetSizePoints()
-                    schedulePreRender(for: comp)
-                }
+                loadCompositionIfNeeded()
             }
             .onChange(of: composition) { newValue in
-                if previewCanvasSize == .zero, let comp = newValue {
-                    previewCanvasSize = comp.targetSizePoints()
-                }
                 if let comp = newValue {
-                    schedulePreRender(for: comp)
+                    handleCompositionChanged(comp)
                 }
             }
             .onChange(of: previewCanvasSize) { _ in
@@ -167,7 +151,8 @@ struct ShareComposerView: View {
             return
         }
 
-        let targetSize = previewCanvasSize == .zero ? composition.targetSizePoints() : previewCanvasSize
+        let targetSize = resolvedTargetExportSize(for: composition)
+        let exportScale = exportScale(for: composition)
         isGeneratingShare = true
 
         defer { isGeneratingShare = false }
@@ -176,7 +161,8 @@ struct ShareComposerView: View {
 
         if let cachedShareImage,
            cachedCompositionSignature == signature,
-           cachedTargetSize == targetSize {
+           cachedTargetSize == targetSize,
+           cachedExportScale == exportScale {
             sharedImage = cachedShareImage
             isSharing = true
             Haptics.success()
@@ -185,12 +171,12 @@ struct ShareComposerView: View {
 
         await Task.yield()
 
-        guard let renderedImage = ShareExportService.renderImage(from: composition, targetSize: targetSize, scale: UIScreen.main.scale) else {
+        guard let renderedImage = ShareExportService.renderImage(from: composition, targetSize: targetSize, scale: exportScale) else {
             print("Error: Could not render share image.")
             return
         }
 
-        cacheRenderedImage(renderedImage, signature: signature, targetSize: targetSize)
+        cacheRenderedImage(renderedImage, signature: signature, targetSize: targetSize, scale: exportScale)
 
         sharedImage = renderedImage
         isSharing = true
@@ -277,13 +263,52 @@ struct ShareComposerView: View {
 // MARK: - Pre-render helpers
 extension ShareComposerView {
     @MainActor
+    private func loadCompositionIfNeeded() {
+        if composition == nil {
+            if let originalData = viewModel.originalImageData,
+               let image = UIImage(data: originalData) {
+                let initialComposition = ShareComposition.default(for: image, initialCaption: captionOptions.first ?? "")
+                composition = initialComposition
+                if previewCanvasSize == .zero {
+                    previewCanvasSize = initialComposition.targetSizePoints()
+                }
+                schedulePreRender(for: initialComposition)
+                return
+            }
+
+            if let data = viewModel.thumbnailData,
+               let image = UIImage(data: data) {
+                let initialComposition = ShareComposition.default(for: image, initialCaption: captionOptions.first ?? "")
+                composition = initialComposition
+                if previewCanvasSize == .zero {
+                    previewCanvasSize = initialComposition.targetSizePoints()
+                }
+                schedulePreRender(for: initialComposition)
+            }
+        } else if let comp = composition, previewCanvasSize == .zero {
+            previewCanvasSize = comp.targetSizePoints()
+            schedulePreRender(for: comp)
+        }
+    }
+
+    @MainActor
+    private func handleCompositionChanged(_ comp: ShareComposition) {
+        if previewCanvasSize == .zero {
+            previewCanvasSize = comp.targetSizePoints()
+        }
+        schedulePreRender(for: comp)
+    }
+
+    @MainActor
     private func schedulePreRender(for composition: ShareComposition) {
         preRenderTask?.cancel()
-        let currentPreviewSize = previewCanvasSize == .zero ? composition.targetSizePoints() : previewCanvasSize
+        let currentTargetSize = resolvedTargetExportSize(for: composition, preRender: true)
+        let currentScale = exportScale(for: composition, preRender: true)
         let signature = compositionSignature(for: composition)
 
         if cachedCompositionSignature == signature,
-           cachedTargetSize == currentPreviewSize,
+           cachedTargetSize == currentTargetSize,
+           cachedExportScale == currentScale,
            cachedShareImage != nil {
             return
         }
@@ -293,19 +318,52 @@ extension ShareComposerView {
             await Task.yield()
             guard !Task.isCancelled else { return }
 
-            guard let rendered = ShareExportService.renderImage(from: composition, targetSize: currentPreviewSize, scale: UIScreen.main.scale) else {
+            guard let rendered = ShareExportService.renderImage(from: composition, targetSize: currentTargetSize, scale: currentScale) else {
                 return
             }
 
-            cacheRenderedImage(rendered, signature: signature, targetSize: currentPreviewSize)
+            cacheRenderedImage(rendered, signature: signature, targetSize: currentTargetSize, scale: currentScale)
+        }
+    }
+
+    private func resolvedTargetExportSize(for composition: ShareComposition, preRender: Bool = false) -> CGSize {
+        switch composition.canvasMode {
+        case .story9x16:
+            return ShareImageStyle.storyExportSize
+        case .square:
+            return ShareImageStyle.squareExportSize
+        case .original:
+            let baseSize = composition.baseImage.size
+            guard baseSize.width > 0, baseSize.height > 0 else {
+                return previewCanvasSize == .zero ? ShareImageStyle.storyExportSize : previewCanvasSize
+            }
+            let maxDimension = preRender ? ShareImageStyle.preRenderMaxDimension : ShareImageStyle.maxOriginalExportDimension
+            guard maxDimension > 0 else { return baseSize }
+            let longestSide = max(baseSize.width, baseSize.height)
+            guard longestSide > 0 else { return baseSize }
+            if longestSide <= maxDimension { return baseSize }
+            let ratio = maxDimension / longestSide
+            return CGSize(width: baseSize.width * ratio, height: baseSize.height * ratio)
+        }
+    }
+
+    private func exportScale(for composition: ShareComposition, preRender: Bool = false) -> CGFloat {
+        switch composition.canvasMode {
+        case .story9x16, .square:
+            return 1.0
+        case .original:
+            if preRender { return 1.0 }
+            let baseScale = composition.baseImage.scale
+            return max(1.0, min(baseScale, ShareImageStyle.maxRenderScale))
         }
     }
 
     @MainActor
-    private func cacheRenderedImage(_ image: UIImage, signature: String, targetSize: CGSize) {
+    private func cacheRenderedImage(_ image: UIImage, signature: String, targetSize: CGSize, scale: CGFloat) {
         cachedShareImage = image
         cachedCompositionSignature = signature
         cachedTargetSize = targetSize
+        cachedExportScale = scale
     }
 
     private func compositionSignature(for composition: ShareComposition) -> String {
