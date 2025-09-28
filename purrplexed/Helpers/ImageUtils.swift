@@ -35,6 +35,32 @@ enum ImageUtils {
 		let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
 		return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
 	}
+
+	/// Resize an image to fill a specific canvas, preserving aspect ratio.
+	/// - Parameters:
+	///   - image: Source image.
+	///   - targetSize: Final canvas size in points.
+	/// - Returns: Resized image that fills the target canvas.
+	static func resizeToFill(image: UIImage, targetSize: CGSize) -> UIImage {
+		guard targetSize.width > 0, targetSize.height > 0 else { return image }
+		let aspectWidth = targetSize.width / image.size.width
+		let aspectHeight = targetSize.height / image.size.height
+		let scaleFactor = max(aspectWidth, aspectHeight)
+		let scaledImageSize = CGSize(
+			width: image.size.width * scaleFactor,
+			height: image.size.height * scaleFactor
+		)
+		let rendererFormat = UIGraphicsImageRendererFormat.default()
+		rendererFormat.scale = 1
+		let renderer = UIGraphicsImageRenderer(size: targetSize, format: rendererFormat)
+		return renderer.image { _ in
+			let origin = CGPoint(
+				x: (targetSize.width - scaledImageSize.width) / 2,
+				y: (targetSize.height - scaledImageSize.height) / 2
+			)
+			image.draw(in: CGRect(origin: origin, size: scaledImageSize))
+		}
+	}
 	
 	/// Crop an image to focus on a specific bounding box, with padding
 	static func cropToFocus(image: UIImage, boundingBox: CGRect, paddingRatio: CGFloat = 0.2) -> UIImage? {

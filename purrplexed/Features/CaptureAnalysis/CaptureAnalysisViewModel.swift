@@ -44,6 +44,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var contextualEmotion: ContextualEmotion? = nil
 	@Published var ownerAdvice: OwnerAdvice? = nil
 	@Published var catJokes: CatJokes? = nil
+	@Published var shareDocument: StoryDocument? = nil
 	@Published var isAnalyzing: Bool = false
 	@Published var partialAnalysisErrors: [String] = []
 	
@@ -255,6 +256,7 @@ final class CaptureAnalysisViewModel: ObservableObject {
 		contextualEmotion = nil
 		ownerAdvice = nil
 		catJokes = nil
+		shareDocument = nil
 		isAnalyzing = false
 		partialAnalysisErrors = []
 		// Preserve cat detection results and frame sizing during analysis
@@ -465,25 +467,113 @@ final class CaptureAnalysisViewModel: ObservableObject {
 			progress = 1.0
 			Haptics.success()
 			Log.analysis.info("Core analyses complete - finishing (cat jokes optional)")
-			
-			// Create a combined result for the UI (for backward compatibility)
-			let combinedText = """
-				Emotion: \(emotionSummary?.description ?? "")
-				
-				Body Language: \(bodyLanguageAnalysis?.overallMood ?? "")
-				
-				Context: \(contextualEmotion?.emotionalMeaning.joined(separator: "; ") ?? "")
-				
-				Advice: \(ownerAdvice?.immediateActionsBulletPoints.joined(separator: "; ") ?? "")
-				"""
-			let result = AnalysisResult(translatedText: combinedText, confidence: 0.9, funFact: nil)
-			transition(.ready(result: result))
-			// Note: isAnalyzing is already set to false by stopSpinnerOnFirstResponse()
-			analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
-			
-			// Usage will be committed on first successful response, not here
-		}
+			prepareShareDocument()
+            
+            // Create a combined result for the UI (for backward compatibility)
+            let combinedText = """
+                Emotion: \(emotionSummary?.description ?? "")
+                
+                Body Language: \(bodyLanguageAnalysis?.overallMood ?? "")
+                
+                Context: \(contextualEmotion?.emotionalMeaning.joined(separator: "; ") ?? "")
+                
+                Advice: \(ownerAdvice?.immediateActionsBulletPoints.joined(separator: "; ") ?? "")
+                """
+            let result = AnalysisResult(translatedText: combinedText, confidence: 0.9, funFact: nil)
+            transition(.ready(result: result))
+            // Note: isAnalyzing is already set to false by stopSpinnerOnFirstResponse()
+            analytics.track(event: "parallel_analysis_complete", properties: ["confidence": 0.9])
+            
+            // Usage will be committed on first successful response, not here
+        }
 	}
+
+    private func prepareShareDocument() {
+        guard let originalData = originalImageData, let image = UIImage(data: originalData) else {
+            shareDocument = nil
+            return
+        }
+
+        let document = StoryDocument(backgroundImage: image, items: [])
+        var seededItems: [StoryItem] = []
+
+        if let summary = emotionSummary {
+            let text = "\(summary.emoji) \(summary.emotion)"
+            let item = StoryItem(
+                kind: .bubble,
+                text: text,
+                fontID: StoryTheme.fallbackFont().id,
+                fontSize: StoryTheme.fallbackFont().defaultSize,
+                color: StoryColor(color: .black),
+                bubbleStyleID: StoryTheme.bubbles.first?.id,
+                position: StoryPoint(x: Double(StoryTheme.canvasSize.width / 2), y: 320),
+                scale: 1.0,
+                rotation: 0,
+                zIndex: 1,
+                isSelected: false
+            )
+            seededItems.append(item)
+        }
+
+        if let contextual = contextualEmotion {
+            let text = contextual.emotionalMeaning.first ?? contextual.contextClues.first ?? ""
+            if !text.isEmpty {
+                let font = StoryTheme.fonts.last ?? StoryTheme.fallbackFont()
+                let item = StoryItem(
+                    kind: .text,
+                    text: text,
+                    fontID: font.id,
+                    fontSize: font.defaultSize,
+                    color: StoryColor(color: .white),
+                    position: StoryPoint(x: Double(StoryTheme.canvasSize.width / 2), y: 960),
+                    scale: 1.0,
+                    rotation: 0,
+                    zIndex: 2,
+                    isSelected: false
+                )
+                seededItems.append(item)
+            }
+        }
+
+        if let advice = ownerAdvice?.immediateActionsBulletPoints.first, !advice.isEmpty {
+            let item = StoryItem(
+                kind: .text,
+                text: advice,
+                fontID: StoryTheme.fallbackFont().id,
+                fontSize: 54,
+                color: StoryColor(color: .white),
+                position: StoryPoint(x: Double(StoryTheme.canvasSize.width / 2), y: 1440),
+                scale: 1.0,
+                rotation: 0,
+                zIndex: 3,
+                isSelected: false
+            )
+            seededItems.append(item)
+        }
+
+        if let catJoke = catJokes?.jokes.first, !catJoke.isEmpty {
+            let item = StoryItem(
+                kind: .emoji,
+                text: "😹",
+                fontID: StoryTheme.fallbackFont().id,
+                fontSize: 200,
+                color: StoryColor(color: .white),
+                position: StoryPoint(x: Double(StoryTheme.canvasSize.width * 0.8), y: 420),
+                scale: 1.0,
+                rotation: 0,
+                zIndex: 4,
+                isSelected: false
+            )
+            seededItems.append(item)
+        }
+
+        seededItems.enumerated().forEach { index, item in
+            document.set(item, at: index)
+        }
+
+        document.selectNone()
+        shareDocument = document
+    }
 
 	private func beginAnalysis(photo: CapturedPhoto, audio: CapturedAudio?) async {
 		cancelWork()
