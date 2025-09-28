@@ -7,9 +7,12 @@ enum ShareExportService {
         let resolvedTargetSize = targetSize ?? composition.targetSizePoints()
         let resolvedScale = scale ?? UIScreen.main.scale
 
-        let view = ShareCanvasView(composition: composition, selectedOverlayID: .constant(nil))
-            .dynamicTypeSize(.medium)
-            .environment(\.colorScheme, .light)
+        let view = ShareCanvasView(
+            composition: composition,
+            selectedOverlayID: .constant(nil)
+        )
+        .dynamicTypeSize(.medium)
+        .environment(\.colorScheme, .light)
 
         if #available(iOS 16.0, *) {
             return ShareImageRenderer.render(content: view, targetSize: resolvedTargetSize, scale: resolvedScale, opaque: true)

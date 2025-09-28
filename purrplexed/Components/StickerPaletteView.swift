@@ -17,9 +17,10 @@ struct StickerPaletteView: View {
                     }
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 4)
         }
         .frame(height: 72)
+        .padding(.horizontal)
     }
 }
 

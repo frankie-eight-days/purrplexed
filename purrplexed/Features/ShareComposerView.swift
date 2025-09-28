@@ -43,77 +43,84 @@ struct ShareComposerView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                // 1. Live Preview of the Shareable Image
-                if let composition {
-                    ShareCanvasView(composition: composition, selectedOverlayID: $selectedOverlayID, onCanvasSizeChange: { size in
-                        previewCanvasSize = size
-                    })
-                        .frame(maxWidth: 600) // Larger editor panel on wide screens
-                        .aspectRatio(composition.canvasAspectRatio(), contentMode: .fit)
-                        .cornerRadius(16)
-                        .shadow(radius: 5)
-                        .padding(.horizontal)
-                        .overlay(gestureLayer)
-                } else {
-                    Text("Image not available")
-                }
-                
-                // 2. Caption Chips
-                VStack(alignment: .leading) {
-                    Text("Choose a Caption")
-                        .font(.headline)
-                        .padding(.horizontal)
-                    
-                    WrapLayout(spacing: CGSize(width: 8, height: 8)) {
-                        ForEach(captionOptions, id: \.self) { caption in
-                        Button(action: {
-                            updateCaption(to: caption)
-                        }) {
-                            Text(caption)
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(currentCaptionText() == caption ? Color.accentColor : Color.secondary.opacity(0.2))
-                                .foregroundColor(currentCaptionText() == caption ? .white : .primary)
-                                .cornerRadius(20)
-                                .lineLimit(1)
-                        }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .clipped()
-                }
+            GeometryReader { proxy in
+                let safeInsets = proxy.safeAreaInsets
+                let basePadding: CGFloat = 24
+                let horizontalPadding = max(basePadding, max(safeInsets.leading, safeInsets.trailing) + basePadding)
+                let maxContentWidth = max(200, proxy.size.width - (horizontalPadding * 2))
+                let maxCanvasWidth = min(maxContentWidth, proxy.size.width * 0.78, 300)
+                let maxCanvasHeight = min(max(200, proxy.size.height * 0.5), 400)
 
-                // 3. Stickers / Emojis
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Stickers")
-                        .font(.headline)
-                        .padding(.horizontal)
+                ScrollView {
+                    LazyVStack(alignment: .center, spacing: 28, pinnedViews: []) {
+                        adaptiveCanvas(availableWidth: maxContentWidth, maxCanvasWidth: maxCanvasWidth, maxCanvasHeight: maxCanvasHeight)
 
-                    StickerPaletteView(emojis: ["😺","😼","😹","😻","😾","🐾","✨","💤"]) { emoji in
-                        addEmojiSticker(emoji)
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Choose a Caption")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            WrapLayout(spacing: CGSize(width: 10, height: 10)) {
+                                ForEach(captionOptions, id: \.self) { caption in
+                                    Button(action: {
+                                        updateCaption(to: caption)
+                                    }) {
+                                        Text(caption)
+                                            .font(.callout)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 10)
+                                            .background(currentCaptionText() == caption ? Color.accentColor : Color.secondary.opacity(0.24))
+                                            .foregroundColor(currentCaptionText() == caption ? .white : .primary)
+                                            .clipShape(Capsule())
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Stickers")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+
+                            StickerPaletteView(emojis: ["😺","😼","😹","😻","😾","🐾","✨","💤"]) { emoji in
+                                addEmojiSticker(emoji)
+                            }
+                        }
+
+                        Spacer(minLength: 32)
                     }
-                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.top, max(safeInsets.top + 12, 32))
+                    .padding(.bottom, max(safeInsets.bottom + 12, 32))
                 }
-                
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .navigationTitle("Create & Share")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Share") { generateAndShare() }
-                        .disabled(currentCaptionText().isEmpty || composition == nil)
+            .modifier(ShareComposerToolbar(
+                isShareDisabled: currentCaptionText().isEmpty || composition == nil,
+                onCancel: { dismiss() },
+                onShare: { generateAndShare() }
+            ))
+            .onAppear {
+                if composition == nil,
+                   let data = viewModel.thumbnailData,
+                   let image = UIImage(data: data) {
+                    let initialComposition = ShareComposition.default(for: image, initialCaption: captionOptions.first ?? "")
+                    composition = initialComposition
+                    if previewCanvasSize == .zero {
+                        previewCanvasSize = initialComposition.targetSizePoints()
+                    }
+                } else if let comp = composition, previewCanvasSize == .zero {
+                    previewCanvasSize = comp.targetSizePoints()
                 }
             }
-            .onAppear {
-                if composition == nil, let data = viewModel.thumbnailData, let image = UIImage(data: data) {
-                    composition = ShareComposition.default(for: image, initialCaption: captionOptions.first ?? "")
+            .onChange(of: composition) { newValue in
+                if previewCanvasSize == .zero, let comp = newValue {
+                    previewCanvasSize = comp.targetSizePoints()
                 }
             }
             .sheet(isPresented: $isSharing, onDismiss: {
@@ -185,6 +192,59 @@ struct ShareComposerView: View {
         composition = comp
         selectedOverlayID = item.id
     }
+
+    @ViewBuilder
+    private func adaptiveCanvas(availableWidth: CGFloat, maxCanvasWidth: CGFloat, maxCanvasHeight: CGFloat) -> some View {
+        if let composition {
+            let aspect = max(0.1, composition.canvasAspectRatio())
+            let widthCandidateHeight = maxCanvasWidth / aspect
+            let fitsWithinHeight = widthCandidateHeight <= maxCanvasHeight
+            let finalWidth = fitsWithinHeight ? maxCanvasWidth : maxCanvasHeight * aspect
+            let finalHeight = fitsWithinHeight ? widthCandidateHeight : maxCanvasHeight
+
+            ShareCanvasView(
+                composition: composition,
+                selectedOverlayID: $selectedOverlayID,
+                onCanvasSizeChange: { size in
+                    previewCanvasSize = size
+                }
+            )
+            .frame(width: finalWidth, height: finalHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 12)
+            .overlay(gestureLayer)
+        } else {
+            Text("Image not available")
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+}
+
+// MARK: - Toolbar Modifier
+private struct ShareComposerToolbar: ViewModifier {
+    let isShareDisabled: Bool
+    let onCancel: () -> Void
+    let onShare: () -> Void
+
+    @ToolbarContentBuilder
+    private func toolbarContent() -> some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel", action: onCancel)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Share", action: onShare)
+                .disabled(isShareDisabled)
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content.toolbar { toolbarContent() }
+    }
 }
 
 // MARK: - Gesture Transform Overlay
@@ -192,9 +252,9 @@ private struct GestureTransformOverlay: View {
     @Binding var composition: ShareComposition
     let overlayIndex: Int
 
-    @GestureState private var transientTranslation: CGSize = .zero
-    @GestureState private var transientScale: CGFloat = 1.0
-    @GestureState private var transientRotation: Angle = .zero
+    @State private var dragStartPosition: CGPoint?
+    @State private var scaleStartValue: CGFloat?
+    @State private var rotationStartValue: CGFloat?
 
     var body: some View {
         GeometryReader { proxy in
@@ -203,87 +263,78 @@ private struct GestureTransformOverlay: View {
 
             Color.clear
                 .contentShape(Rectangle())
-                .gesture(combinedGesture(canvasSize: canvasFrame.size))
                 .frame(width: canvasFrame.width, height: canvasFrame.height)
                 .position(x: canvasFrame.midX, y: canvasFrame.midY)
-                .overlay(liveTransformedOverlay(in: canvasFrame))
+                .gesture(combinedGesture(canvasSize: canvasFrame.size))
         }
     }
 
     private func combinedGesture(canvasSize: CGSize) -> some Gesture {
         let drag = DragGesture()
-            .updating($transientTranslation) { value, state, _ in
-                state = value.translation
-            }
-            .onEnded { value in
+            .onChanged { value in
+                guard canvasSize.width > 0, canvasSize.height > 0 else { return }
+                guard composition.overlays.indices.contains(overlayIndex) else { return }
+
+                if dragStartPosition == nil {
+                    dragStartPosition = composition.overlays[overlayIndex].positionNormalized
+                }
+
+                guard let start = dragStartPosition else { return }
                 var item = composition.overlays[overlayIndex]
+
                 let dx = value.translation.width / canvasSize.width
                 let dy = value.translation.height / canvasSize.height
-                item.positionNormalized.x = min(max(0, item.positionNormalized.x + dx), 1)
-                item.positionNormalized.y = min(max(0, item.positionNormalized.y + dy), 1)
+                item.positionNormalized.x = clamp(start.x + dx)
+                item.positionNormalized.y = clamp(start.y + dy)
                 composition.overlays[overlayIndex] = item
+            }
+            .onEnded { _ in
+                dragStartPosition = nil
             }
 
         let magnify = MagnificationGesture()
-            .updating($transientScale) { value, state, _ in
-                state = value
-            }
-            .onEnded { value in
+            .onChanged { value in
+                guard composition.overlays.indices.contains(overlayIndex) else { return }
+
+                if scaleStartValue == nil {
+                    scaleStartValue = composition.overlays[overlayIndex].scale
+                }
+
+                guard let start = scaleStartValue else { return }
                 var item = composition.overlays[overlayIndex]
-                item.scale = max(0.2, min(4.0, item.scale * value))
+                item.scale = clampScale(start * value)
                 composition.overlays[overlayIndex] = item
+            }
+            .onEnded { _ in
+                scaleStartValue = nil
             }
 
         let rotate = RotationGesture()
-            .updating($transientRotation) { value, state, _ in
-                state = value
-            }
-            .onEnded { value in
+            .onChanged { value in
+                guard composition.overlays.indices.contains(overlayIndex) else { return }
+
+                if rotationStartValue == nil {
+                    rotationStartValue = composition.overlays[overlayIndex].rotationRadians
+                }
+
+                guard let start = rotationStartValue else { return }
                 var item = composition.overlays[overlayIndex]
-                item.rotationRadians += CGFloat(value.radians)
+                item.rotationRadians = start + CGFloat(value.radians)
                 composition.overlays[overlayIndex] = item
+            }
+            .onEnded { _ in
+                rotationStartValue = nil
             }
 
         return drag.simultaneously(with: magnify).simultaneously(with: rotate)
     }
 
-    // Live feedback: mirror the selected overlay with transient transforms applied
-    @ViewBuilder private func liveTransformedOverlay(in canvasFrame: CGRect) -> some View {
-        let canvasSize = canvasFrame.size
-        if composition.overlays.indices.contains(overlayIndex) {
-            var item = composition.overlays[overlayIndex]
-            let livePoint = CGPoint(
-                x: (item.positionNormalized.x * canvasSize.width) + transientTranslation.width,
-                y: (item.positionNormalized.y * canvasSize.height) + transientTranslation.height
-            )
-            let liveScale = item.scale * transientScale
-            let liveRotation = item.rotationRadians + CGFloat(transientRotation.radians)
-
-            overlayView(for: item, canvasSize: canvasSize)
-                .scaleEffect(liveScale)
-                .rotationEffect(.radians(liveRotation))
-                .position(livePoint)
-                .allowsHitTesting(false)
-        }
+    private func clamp(_ value: CGFloat) -> CGFloat {
+        min(max(0, value), 1)
     }
 
-    @ViewBuilder private func overlayView(for item: OverlayItem, canvasSize: CGSize) -> some View {
-        switch item.kind {
-        case .caption(let text):
-            Text(text)
-                .font(.system(size: min(ShareImageStyle.captionFontSize, canvasSize.width * 0.08), weight: ShareImageStyle.captionFontWeight, design: .rounded))
-                .foregroundColor(.white)
-                .padding(ShareImageStyle.captionPadding)
-                .background(Color.black.opacity(ShareImageStyle.captionBackgroundOpacity))
-                .cornerRadius(ShareImageStyle.captionCornerRadius)
-                .frame(maxWidth: canvasSize.width * ShareImageStyle.captionMaxWidthRatio)
-                .fixedSize(horizontal: false, vertical: true)
-        case .stickerEmoji(let text):
-            Text(text)
-                .font(.system(size: max(32, canvasSize.width * 0.08)))
-        case .watermark:
-            EmptyView()
-        }
+    private func clampScale(_ value: CGFloat) -> CGFloat {
+        max(0.2, min(4.0, value))
     }
 
     private func fittedRect(in size: CGSize, aspect: CGFloat) -> CGRect {
