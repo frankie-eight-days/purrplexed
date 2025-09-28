@@ -14,6 +14,11 @@ struct ShareComposerView: View {
     @State private var isSharing: Bool = false
     @State private var sharedImage: UIImage?
     @State private var previewCanvasSize: CGSize = .zero
+    @State private var isGeneratingShare: Bool = false
+    @State private var cachedShareImage: UIImage?
+    @State private var cachedCompositionSignature: String?
+    @State private var cachedTargetSize: CGSize = .zero
+    @State private var preRenderTask: Task<Void, Never>?
     
     private var captionOptions: [String] {
         var options: [String] = []
@@ -102,8 +107,13 @@ struct ShareComposerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .modifier(ShareComposerToolbar(
                 isShareDisabled: currentCaptionText().isEmpty || composition == nil,
+                isGeneratingShare: isGeneratingShare,
                 onCancel: { dismiss() },
-                onShare: { generateAndShare() }
+                onShare: {
+                    Task {
+                        await generateAndShare()
+                    }
+                }
             ))
             .onAppear {
                 if composition == nil,
@@ -114,13 +124,25 @@ struct ShareComposerView: View {
                     if previewCanvasSize == .zero {
                         previewCanvasSize = initialComposition.targetSizePoints()
                     }
+                    if let comp = composition {
+                        schedulePreRender(for: comp)
+                    }
                 } else if let comp = composition, previewCanvasSize == .zero {
                     previewCanvasSize = comp.targetSizePoints()
+                    schedulePreRender(for: comp)
                 }
             }
             .onChange(of: composition) { newValue in
                 if previewCanvasSize == .zero, let comp = newValue {
                     previewCanvasSize = comp.targetSizePoints()
+                }
+                if let comp = newValue {
+                    schedulePreRender(for: comp)
+                }
+            }
+            .onChange(of: previewCanvasSize) { _ in
+                if let comp = composition {
+                    schedulePreRender(for: comp)
                 }
             }
             .sheet(isPresented: $isSharing, onDismiss: {
@@ -130,23 +152,49 @@ struct ShareComposerView: View {
                     ActivityView(activityItems: [image])
                 }
             }
+            .onDisappear {
+                preRenderTask?.cancel()
+                preRenderTask = nil
+            }
         }
     }
 
-    private func generateAndShare() {
+    @MainActor
+    private func generateAndShare() async {
+        guard !isGeneratingShare else { return }
         guard let composition else {
             print("Error: Missing image data for sharing.")
             return
         }
 
         let targetSize = previewCanvasSize == .zero ? composition.targetSizePoints() : previewCanvasSize
+        isGeneratingShare = true
+
+        defer { isGeneratingShare = false }
+
+        let signature = compositionSignature(for: composition)
+
+        if let cachedShareImage,
+           cachedCompositionSignature == signature,
+           cachedTargetSize == targetSize {
+            sharedImage = cachedShareImage
+            isSharing = true
+            Haptics.success()
+            return
+        }
+
+        await Task.yield()
+
         guard let renderedImage = ShareExportService.renderImage(from: composition, targetSize: targetSize, scale: UIScreen.main.scale) else {
             print("Error: Could not render share image.")
             return
         }
 
+        cacheRenderedImage(renderedImage, signature: signature, targetSize: targetSize)
+
         sharedImage = renderedImage
         isSharing = true
+        Haptics.success()
     }
 
     // MARK: - Gestures Layer
@@ -207,6 +255,7 @@ struct ShareComposerView: View {
                 selectedOverlayID: $selectedOverlayID,
                 onCanvasSizeChange: { size in
                     previewCanvasSize = size
+                    schedulePreRender(for: composition)
                 }
             )
             .frame(width: finalWidth, height: finalHeight)
@@ -225,9 +274,71 @@ struct ShareComposerView: View {
     }
 }
 
+// MARK: - Pre-render helpers
+extension ShareComposerView {
+    @MainActor
+    private func schedulePreRender(for composition: ShareComposition) {
+        preRenderTask?.cancel()
+        let currentPreviewSize = previewCanvasSize == .zero ? composition.targetSizePoints() : previewCanvasSize
+        let signature = compositionSignature(for: composition)
+
+        if cachedCompositionSignature == signature,
+           cachedTargetSize == currentPreviewSize,
+           cachedShareImage != nil {
+            return
+        }
+
+        preRenderTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+
+            guard let rendered = ShareExportService.renderImage(from: composition, targetSize: currentPreviewSize, scale: UIScreen.main.scale) else {
+                return
+            }
+
+            cacheRenderedImage(rendered, signature: signature, targetSize: currentPreviewSize)
+        }
+    }
+
+    @MainActor
+    private func cacheRenderedImage(_ image: UIImage, signature: String, targetSize: CGSize) {
+        cachedShareImage = image
+        cachedCompositionSignature = signature
+        cachedTargetSize = targetSize
+    }
+
+    private func compositionSignature(for composition: ShareComposition) -> String {
+        let overlaySignature = composition.overlays.map { item -> String in
+            var components: [String] = []
+            switch item.kind {
+            case .caption(let text):
+                components.append("caption:\(text)")
+            case .stickerEmoji(let text):
+                components.append("sticker:\(text)")
+            case .watermark:
+                components.append("watermark")
+            }
+
+            components.append("pos:\(item.positionNormalized.x),\(item.positionNormalized.y)")
+            components.append("scale:\(item.scale)")
+            components.append("rot:\(item.rotationRadians)")
+            components.append("z:\(item.zIndex)")
+            return components.joined(separator: "|")
+        }.joined(separator: "||")
+
+        return [
+            composition.canvasMode.hashValue.description,
+            composition.baseImage.hashSignature,
+            overlaySignature
+        ].joined(separator: "::")
+    }
+}
+
 // MARK: - Toolbar Modifier
 private struct ShareComposerToolbar: ViewModifier {
     let isShareDisabled: Bool
+    let isGeneratingShare: Bool
     let onCancel: () -> Void
     let onShare: () -> Void
 
@@ -237,8 +348,18 @@ private struct ShareComposerToolbar: ViewModifier {
             Button("Cancel", action: onCancel)
         }
         ToolbarItem(placement: .confirmationAction) {
-            Button("Share", action: onShare)
-                .disabled(isShareDisabled)
+            Button(action: onShare) {
+            if isGeneratingShare {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                    Text("Preparing")
+                }
+            } else {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+            }
+            .disabled(isShareDisabled || isGeneratingShare)
         }
     }
 

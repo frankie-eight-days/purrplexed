@@ -59,6 +59,15 @@ extension ShareComposition {
     }
 }
 
+extension UIImage {
+    var hashSignature: String {
+        guard let data = self.jpegData(compressionQuality: 0.5) else {
+            return ""
+        }
+        return String(data.hashValue)
+    }
+}
+
 extension ShareComposition {
     func canvasAspectRatio() -> CGFloat {
         switch canvasMode {
