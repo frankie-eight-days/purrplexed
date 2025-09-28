@@ -22,4 +22,8 @@ enum ShareImageStyle {
     static let watermarkBackgroundOpacity: CGFloat = 0.5
 
     static let maxCaptionWidthMultiplier: CGFloat = 0.8
+
+    // Export presets
+    static let storyExportSize = CGSize(width: 1080, height: 1920)
+    static let squareExportSize = CGSize(width: 1080, height: 1080)
 }

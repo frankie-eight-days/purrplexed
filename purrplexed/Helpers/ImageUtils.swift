@@ -83,4 +83,20 @@ enum ImageUtils {
 		
 		return CGRect(x: x, y: y, width: finalWidth, height: finalHeight)
 	}
+
+	/// Resize an image to fit within a target CGSize (maintaining aspect ratio).
+	/// Intended for preview downsampling to reduce render cost.
+	static func resizeToFit(image: UIImage, targetSize: CGSize) -> UIImage {
+		guard targetSize.width > 0, targetSize.height > 0 else { return image }
+		let imageSize = image.size
+		guard imageSize.width > 0, imageSize.height > 0 else { return image }
+		let widthScale = targetSize.width / imageSize.width
+		let heightScale = targetSize.height / imageSize.height
+		let scaleFactor = min(widthScale, heightScale)
+		let newSize = CGSize(width: imageSize.width * scaleFactor, height: imageSize.height * scaleFactor)
+		let format = UIGraphicsImageRendererFormat.default()
+		format.scale = 1
+		let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+		return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+	}
 }
