@@ -9,12 +9,28 @@ struct ShareComposerView: View {
     // State for the currently selected caption text
     @State private var selectedCaptionText: String = ""
     
+    // State for presenting the share sheet
+    @State private var isSharing: Bool = false
+    @State private var sharedImage: UIImage?
+    
+    // MARK: - Gesture State for the Caption
+    @State private var captionOffset: CGSize = .zero
+    @State private var captionAngle: Angle = .zero
+    @State private var captionScale: CGFloat = 1.0
+    @State private var previewCanvasSize: CGSize = .zero
+    
     // The view that will be rendered into an image for sharing
     @ViewBuilder
     private var shareableContent: some View {
         // Ensure we have valid image data to create a UIImage
         if let data = viewModel.thumbnailData, let image = UIImage(data: data) {
-            ShareableImageCanvas(image: image, caption: selectedCaptionText)
+            ShareableImageCanvas(
+                image: image,
+                caption: selectedCaptionText,
+                offset: $captionOffset,
+                angle: $captionAngle,
+                scale: $captionScale
+            )
         } else {
             // Provide a fallback view if the image data is missing
             Text("Image not available")
@@ -52,6 +68,11 @@ struct ShareComposerView: View {
             VStack(spacing: 20) {
                 // 1. Live Preview of the Shareable Image
                 shareableContent
+                    .readSize { size in
+                        // We'll use this to normalize gesture offsets when
+                        // exporting the high-resolution image.
+                        previewCanvasSize = size
+                    }
                     .cornerRadius(16)
                     .shadow(radius: 5)
                     .padding(.horizontal)
@@ -88,36 +109,60 @@ struct ShareComposerView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Share") { share() }
+                    Button("Share") { generateAndShare() }
                         .disabled(selectedCaptionText.isEmpty)
                 }
             }
             .onAppear {
-                // Set initial caption
                 if selectedCaptionText.isEmpty {
                     selectedCaptionText = captionOptions.first ?? ""
+                }
+
+                // Reset transformation state when entering the screen so every
+                // share starts from a consistent baseline.
+                captionOffset = .zero
+                captionAngle = .zero
+                captionScale = 1.0
+            }
+            .sheet(isPresented: $isSharing, onDismiss: {
+                sharedImage = nil
+            }) {
+                if let image = sharedImage {
+                    ActivityView(activityItems: [image])
                 }
             }
         }
     }
-    
-    private func share() {
-        // TODO: Update this to render `shareableContent` to an image
-        let renderer = ImageRenderer(content: shareableContent)
-        renderer.scale = UIScreen.main.scale
-        guard let image = renderer.uiImage else {
-            print("Failed to render image")
+
+    private func generateAndShare() {
+        guard let data = viewModel.thumbnailData, let image = UIImage(data: data) else {
+            print("Error: Missing image data for sharing.")
             return
         }
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = windowScene.keyWindow?.rootViewController else { return }
+        let input = ShareImageRenderer.Input(
+            baseImage: image,
+            caption: selectedCaptionText,
+            captionOffset: convertOffsetToImageSpace(for: image),
+            captionRotation: captionAngle,
+            captionScale: captionScale
+        )
 
-        let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
-        root.present(activityVC, animated: true)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            dismiss()
+        guard let renderedImage = ShareImageRenderer.render(from: input) else {
+            print("Error: Could not render share image.")
+            return
         }
+
+        sharedImage = renderedImage
+        isSharing = true
+    }
+
+    private func convertOffsetToImageSpace(for image: UIImage) -> CGSize {
+        let displaySize = previewCanvasSize == .zero ? CGSize(width: image.size.width, height: image.size.height) : previewCanvasSize
+        guard displaySize.width > 0, displaySize.height > 0 else { return captionOffset }
+        let scaleX = image.size.width / displaySize.width
+        let scaleY = image.size.height / displaySize.height
+        return CGSize(width: captionOffset.width * scaleX,
+                      height: captionOffset.height * scaleY)
     }
 }
