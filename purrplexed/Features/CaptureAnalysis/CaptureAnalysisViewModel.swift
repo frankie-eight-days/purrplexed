@@ -48,6 +48,12 @@ final class CaptureAnalysisViewModel: ObservableObject {
 	@Published var isAnalyzing: Bool = false
 	@Published var partialAnalysisErrors: [String] = []
 	
+	// Share card data
+	@Published var shareCardData: ShareCardData? = nil
+	@Published var shareCardOptions: ShareCardOptions? = nil
+	@Published var selectedContextIndexes: Set<Int> = []
+	@Published var selectedAdviceIndexes: Set<Int> = []
+	
 	// Cat detection state
 	@Published var catDetectionResult: CatDetectionResult? = nil
 	@Published var isDetectingCat: Bool = false
