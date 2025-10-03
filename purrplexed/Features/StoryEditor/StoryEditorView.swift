@@ -52,10 +52,6 @@ struct StoryEditorView: View {
 						Label("Export", systemImage: "square.and.arrow.down")
 					}
 					.disabled(isExporting)
-					Button(action: shareStory) {
-						Label("Share", systemImage: "square.and.arrow.up")
-					}
-					.disabled(isExporting)
 				}
 			}
 			.sheet(isPresented: $showingImagePicker) { imagePicker }
@@ -155,22 +151,6 @@ struct StoryEditorView: View {
 			do {
 				let url = try await exportManager.export(document: document)
 				exportedURL = url
-				Haptics.success()
-			} catch {
-				Haptics.error()
-			}
-			isExporting = false
-		}
-	}
-
-	private func shareStory() {
-		Task {
-			guard !isExporting else { return }
-			isExporting = true
-			do {
-				let url = try await exportManager.export(document: document)
-				exportedURL = url
-				ShareController.shared.presentShareSheet(with: url)
 				Haptics.success()
 			} catch {
 				Haptics.error()
