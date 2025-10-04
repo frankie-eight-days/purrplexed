@@ -79,27 +79,35 @@ enum ShareCardRenderer {
 					width: targetSize.width - 2 * borderWidth - 40,
 					height: captionHeight - 20
 				)
-				let paragraph = NSMutableParagraphStyle()
-				paragraph.alignment = .center
-				paragraph.lineBreakMode = .byWordWrapping
-				let captionAttributes: [NSAttributedString.Key: Any] = [
-					.font: UIFont.systemFont(ofSize: 28, weight: .semibold),
-					.foregroundColor: UIColor.black,
-					.paragraphStyle: paragraph
-				]
-				let clampedCaption = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(150))
-				clampedCaption.draw(in: captionArea, withAttributes: captionAttributes)
+			let paragraph = NSMutableParagraphStyle()
+			paragraph.alignment = .center
+			paragraph.lineBreakMode = .byWordWrapping
+			let clampedCaption = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(150))
+			let captionFont = fittingFont(
+				for: clampedCaption,
+				in: captionArea,
+				paragraphStyle: paragraph,
+				maxFontSize: 62,
+				minFontSize: 28, // Adjust this lower if we need to squeeze in even longer captions later.
+				weight: .semibold
+			)
+			let captionAttributes: [NSAttributedString.Key: Any] = [
+				.font: captionFont,
+				.foregroundColor: UIColor.black,
+				.paragraphStyle: paragraph
+			]
+			clampedCaption.draw(in: captionArea, withAttributes: captionAttributes)
 				let brandingArea = CGRect(
 					x: borderWidth,
 					y: targetSize.height - borderWidth - brandingHeight,
 					width: targetSize.width - 2 * borderWidth,
 					height: brandingHeight
 				)
-				let brandingAttributes: [NSAttributedString.Key: Any] = [
-					.font: UIFont.systemFont(ofSize: 20, weight: .medium),
-					.foregroundColor: UIColor.gray,
-					.paragraphStyle: paragraph
-				]
+			let brandingAttributes: [NSAttributedString.Key: Any] = [
+				.font: UIFont.systemFont(ofSize: 32, weight: .medium),
+				.foregroundColor: UIColor.gray,
+				.paragraphStyle: paragraph
+			]
 				brandingText.draw(in: brandingArea, withAttributes: brandingAttributes)
 				ctx.addPath(roundedPath.cgPath)
 				ctx.setStrokeColor(UIColor.white.cgColor)
@@ -107,6 +115,46 @@ enum ShareCardRenderer {
 				ctx.strokePath()
 			}
 		}.value
+	}
+}
+
+private extension ShareCardRenderer {
+	static func fittingFont(
+		for text: String,
+		in rect: CGRect,
+		paragraphStyle: NSParagraphStyle,
+		maxFontSize: CGFloat,
+		minFontSize: CGFloat,
+		weight: UIFont.Weight
+	) -> UIFont {
+		guard !text.isEmpty else {
+			return UIFont.systemFont(ofSize: maxFontSize, weight: weight)
+		}
+		let options: NSStringDrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
+		var low = min(minFontSize, maxFontSize)
+		var high = max(maxFontSize, minFontSize)
+		var bestFont = UIFont.systemFont(ofSize: low, weight: weight)
+		while high - low > 0.5 {
+			let mid = (low + high) / 2
+			let font = UIFont.systemFont(ofSize: mid, weight: weight)
+			let attributes: [NSAttributedString.Key: Any] = [
+				.font: font,
+				.paragraphStyle: paragraphStyle
+			]
+			let boundingBox = text.boundingRect(
+				with: CGSize(width: rect.width, height: CGFloat.greatestFiniteMagnitude),
+				options: options,
+				attributes: attributes,
+				context: nil
+			).integral
+			if boundingBox.height <= rect.height {
+				bestFont = font
+				low = mid
+			} else {
+				high = mid
+			}
+		}
+		return bestFont
 	}
 }
 
