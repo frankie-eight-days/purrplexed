@@ -26,6 +26,11 @@ final class ShareEditorViewModel: ObservableObject {
 	private var cachedEmojis: [String] = []
 	private var renderTask: Task<Void, Never>? = nil
 	private var currentShareURL: URL? = nil
+	private lazy var originalImage: UIImage? = UIImage(data: context.originalImageData)
+	private lazy var originalImagePixelSize: CGSize? = {
+		guard let cgImage = originalImage?.cgImage else { return nil }
+		return CGSize(width: cgImage.width, height: cgImage.height)
+	}()
 
 	private(set) var bodyLanguageChips: [String] = []
 	private(set) var contextualChips: [String] = []
@@ -128,14 +133,19 @@ final class ShareEditorViewModel: ObservableObject {
 		if !force, cachedRenderedImage != nil, cachedCaption == caption, cachedEmojis == selectedEmojis {
 			return cachedRenderedImage
 		}
-		guard let catImage = await makeCroppedImage() else {
+		guard let baseImage = originalImage else {
 			cachedRenderedImage = nil
 			return nil
 		}
 		let captionToRender = caption.isEmpty ? ShareEditorViewModel.defaultCaption(from: context) : caption
 		cachedCaption = captionToRender
 		cachedEmojis = selectedEmojis
-		let rendered = await ShareCardRenderer.render(catImage: catImage, caption: captionToRender)
+		let rendered = await ShareCardRenderer.render(
+			originalImage: baseImage,
+			catDetectionResult: adjustedCatDetectionResult(for: baseImage),
+			caption: captionToRender,
+			debug: true
+		)
 		await MainActor.run { [weak self] in
 			self?.cachedRenderedImage = rendered
 			self?.previewImage = rendered
@@ -166,27 +176,38 @@ final class ShareEditorViewModel: ObservableObject {
 		return words.joined(separator: " ").trimmingCharacters(in: .whitespaces)
 	}
 
-	private func makeCroppedImage() async -> UIImage? {
-		guard let image = UIImage(data: context.originalImageData) else { return nil }
-		if let catResult = context.catDetectionResult,
-		   let cgImage = image.cgImage {
-			let originalPixelSize = CGSize(width: cgImage.width, height: cgImage.height)
-			let detectionSize = catResult.imageSize
-			let scaleX = originalPixelSize.width / max(detectionSize.width, 1)
-			let scaleY = originalPixelSize.height / max(detectionSize.height, 1)
-			let scaledBoundingBox = CGRect(
-				x: catResult.boundingBox.origin.x * scaleX,
-				y: catResult.boundingBox.origin.y * scaleY,
-				width: catResult.boundingBox.width * scaleX,
-				height: catResult.boundingBox.height * scaleY
-			)
-			let clampedBox = scaledBoundingBox.intersection(CGRect(origin: .zero, size: originalPixelSize))
-			if clampedBox.width > 0, clampedBox.height > 0,
-			   let cropped = ImageUtils.cropToFocus(image: image, boundingBox: clampedBox, paddingRatio: 0.2) {
-				return cropped
-			}
+	private func adjustedCatDetectionResult(for image: UIImage) -> CatDetectionResult? {
+		guard var result = context.catDetectionResult else { return nil }
+		guard
+			let detectionImageSize = originalImagePixelSize,
+			detectionImageSize.width > 0,
+			detectionImageSize.height > 0
+		else {
+			return result
 		}
-		return image
+		let targetPixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+		guard targetPixelSize.width > 0, targetPixelSize.height > 0 else { return result }
+
+		if detectionImageSize == result.imageSize {
+			return result
+		}
+
+		let scaleX = targetPixelSize.width / max(result.imageSize.width, 1)
+		let scaleY = targetPixelSize.height / max(result.imageSize.height, 1)
+		let transformedBox = CGRect(
+			x: result.boundingBox.origin.x * scaleX,
+			y: result.boundingBox.origin.y * scaleY,
+			width: result.boundingBox.width * scaleX,
+			height: result.boundingBox.height * scaleY
+		)
+
+		result = CatDetectionResult(
+			boundingBox: transformedBox,
+			confidence: result.confidence,
+			imageSize: targetPixelSize
+		)
+		Log.share.info("Adjusted detection bounding box from \(String(describing: detectionImageSize)) to \(String(describing: targetPixelSize))")
+		return result
 	}
 
 	private func loadChips() {

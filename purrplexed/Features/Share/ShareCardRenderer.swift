@@ -9,9 +9,11 @@ import UIKit
 
 enum ShareCardRenderer {
 	static func render(
-		catImage: UIImage,
+		originalImage: UIImage,
+		catDetectionResult: CatDetectionResult?,
 		caption: String,
-		brandingText: String = "Purrplexed 🐱"
+		brandingText: String = "Purrplexed 🐱",
+		debug: Bool = false
 	) async -> UIImage? {
 		await Task.detached(priority: .userInitiated) {
 			let targetSize = CGSize(width: 1080, height: 1350)
@@ -42,23 +44,38 @@ enum ShareCardRenderer {
 						options: []
 					)
 				}
+				let squareSide = targetSize.width - 2 * borderWidth
 				let imageArea = CGRect(
 					x: borderWidth,
 					y: borderWidth,
-					width: targetSize.width - 2 * borderWidth,
-					height: targetSize.height - 2 * borderWidth - captionHeight - brandingHeight
+					width: squareSide,
+					height: squareSide
 				)
 				let innerRadius: CGFloat = 24
 				let imagePath = UIBezierPath(roundedRect: imageArea, cornerRadius: innerRadius)
 				ctx.saveGState()
 				ctx.addPath(imagePath.cgPath)
 				ctx.clip()
-				let scaledImage = ImageUtils.resizeToFill(image: catImage, targetSize: imageArea.size)
-				scaledImage.draw(in: imageArea)
+				let focusTransform = CatFocusTransformCalculator.calculate(
+					image: originalImage,
+					containerSize: imageArea.size,
+					catDetectionResult: catDetectionResult
+				)
+				if debug {
+					Log.share.info("Share transform scale=\(focusTransform.extraScale, privacy: .public) offset=\(focusTransform.offset.debugDescription, privacy: .public)")
+				}
+				let drawingRect = focusTransform.drawingRect(for: originalImage.size)
+				let adjustedRect = CGRect(
+					x: imageArea.origin.x + drawingRect.origin.x,
+					y: imageArea.origin.y + drawingRect.origin.y,
+					width: drawingRect.size.width,
+					height: drawingRect.size.height
+				)
+				originalImage.draw(in: adjustedRect)
 				ctx.restoreGState()
 				let captionArea = CGRect(
 					x: borderWidth + 20,
-					y: imageArea.maxY + 10,
+					y: imageArea.maxY + 18,
 					width: targetSize.width - 2 * borderWidth - 40,
 					height: captionHeight - 20
 				)
@@ -74,7 +91,7 @@ enum ShareCardRenderer {
 				clampedCaption.draw(in: captionArea, withAttributes: captionAttributes)
 				let brandingArea = CGRect(
 					x: borderWidth,
-					y: captionArea.maxY + 10,
+					y: targetSize.height - borderWidth - brandingHeight,
 					width: targetSize.width - 2 * borderWidth,
 					height: brandingHeight
 				)

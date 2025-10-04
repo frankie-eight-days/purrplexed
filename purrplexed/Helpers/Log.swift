@@ -12,4 +12,5 @@ enum Log {
 	static let analysis = Logger(subsystem: "com.purrplexed.app", category: "Analysis")
 	static let network = Logger(subsystem: "com.purrplexed.app", category: "Network")
 	static let permissions = Logger(subsystem: "com.purrplexed.app", category: "Permissions")
+	static let share = Logger(subsystem: "com.purrplexed.app", category: "Share")
 }

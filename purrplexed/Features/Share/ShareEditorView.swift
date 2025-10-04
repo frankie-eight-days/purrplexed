@@ -15,9 +15,14 @@ struct ShareEditorView: View {
 	var body: some View {
 		NavigationStack {
 			GeometryReader { proxy in
-				let previewHeight = proxy.size.height * 0.5
-				let editorHeight = proxy.size.height * 0.4
-				let shareHeight = max(proxy.size.height * 0.1, 96)
+				let analysisFrameHeight: CGFloat = 336
+				let referenceAspect: CGFloat = proxy.size.width > 0 ? proxy.size.width / analysisFrameHeight : 1
+				let availableWidth = proxy.size.width
+				let maxPreviewHeight = proxy.size.height * 0.55
+				let computedHeight = min(availableWidth / referenceAspect, maxPreviewHeight)
+				let previewHeight = computedHeight
+				let editorHeight = proxy.size.height * 0.35
+				let shareHeight = max(proxy.size.height - previewHeight - editorHeight, 96)
 				VStack(spacing: 0) {
 					previewSection
 						.frame(height: previewHeight)
