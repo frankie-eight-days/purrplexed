@@ -74,6 +74,8 @@ struct AppRootView: View {
 				SettingsView(viewModel: SettingsViewModel(services: services!))
 			case .onboarding:
 				EmptyView()
+			case .shareEditor(let context):
+				ShareEditorView(viewModel: ShareEditorViewModel(context: context))
 			}
 		}
 		.fullScreenCover(isPresented: $showOnboarding) {

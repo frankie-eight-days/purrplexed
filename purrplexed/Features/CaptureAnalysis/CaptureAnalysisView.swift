@@ -272,6 +272,8 @@ struct CaptureAnalysisView: View {
 		.padding(.horizontal)
 	}
 	
+	@State private var showStoryEditor = false
+
 	private var analysisResultsView: some View {
 		VStack(spacing: DS.Spacing.s) {
 			if !viewModel.partialAnalysisErrors.isEmpty {
@@ -282,6 +284,22 @@ struct CaptureAnalysisView: View {
 				ParallelAnalysisResultsView(viewModel: viewModel)
 					.padding(.horizontal)
 					.transition(.opacity)
+			}
+		}
+		.overlay(alignment: .bottom) {
+			if viewModel.shareDocument != nil {
+				ShareCtaButton(action: {
+					Haptics.impact(.medium)
+					showStoryEditor = true
+				})
+				.transition(AnyTransition.move(edge: .bottom).combined(with: .opacity))
+				.padding(.horizontal)
+				.padding(.bottom, 24)
+			}
+		}
+		.sheet(isPresented: $showStoryEditor) {
+			if let doc = viewModel.shareDocument {
+				StoryEditorView(document: doc, exportManager: ExportManager())
 			}
 		}
 	}
@@ -343,12 +361,42 @@ struct CaptureAnalysisView: View {
 	}
 }
 
+private struct ShareCtaButton: View {
+	let action: () -> Void
+	
+	var body: some View {
+		Button(action: action) {
+			HStack(spacing: 12) {
+				Image(systemName: "square.and.arrow.up")
+					.font(.headline)
+				Text("Share Story")
+					.font(.headline)
+					.fontWeight(.semibold)
+			}
+			.padding(.vertical, 14)
+			.padding(.horizontal, 22)
+			.foregroundColor(.white)
+			.background(
+				LinearGradient(
+					colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
+					startPoint: .leading,
+					endPoint: .trailing
+				)
+			)
+			.clipShape(Capsule())
+			.shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 8)
+		}
+		.buttonStyle(.plain)
+	}
+}
+
 // MARK: - Parallel Analysis Results View
 
 struct ParallelAnalysisResultsView: View {
 	@ObservedObject var viewModel: CaptureAnalysisViewModel
 	@State private var expandedSections: Set<AnalysisSection> = []
 	@State private var showEmotionSummary = false
+	@Environment(\.services) private var services
 	
 	enum AnalysisSection: String, CaseIterable {
 		case bodyLanguage = "Body Language"
@@ -433,6 +481,26 @@ struct ParallelAnalysisResultsView: View {
 					)
 				}
 			}
+		
+		if shouldShowShareButton() {
+ 		Button {
+ 			presentShareEditor()
+ 		} label: {
+				HStack(spacing: 12) {
+					Image(systemName: "square.and.arrow.up")
+						.foregroundColor(DS.Color.accent)
+					Text("Share")
+						.font(DS.Typography.bodyFont())
+						.fontWeight(.medium)
+					Spacer()
+				}
+				.padding()
+				.background(DS.Color.accent.opacity(0.12))
+				.clipShape(RoundedRectangle(cornerRadius: 12))
+			}
+			.buttonStyle(.plain)
+			.accessibilityIdentifier("share-button")
+		}
 			
 			// Classic results fallback for backwards compatibility
 			if case .ready(let result) = viewModel.state, viewModel.emotionSummary == nil {
@@ -514,6 +582,23 @@ struct ParallelAnalysisResultsView: View {
 			}
 		}
 	}
+
+	private func shouldShowShareButton() -> Bool {
+		viewModel.emotionSummary != nil &&
+		viewModel.bodyLanguageAnalysis != nil &&
+		viewModel.contextualEmotion != nil &&
+		viewModel.ownerAdvice != nil
+	}
+
+ private func presentShareEditor() {
+ 		guard let services else { return }
+ 		guard let context = viewModel.makeShareEditorContext() else {
+ 			Log.analysis.warning("Share attempt without full context")
+ 			Haptics.error()
+ 			return
+ 		}
+ 		services.router.present(.shareEditor(context))
+ 	}
 }
 
 // MARK: - Tray Card Component

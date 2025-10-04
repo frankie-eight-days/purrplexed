@@ -13,12 +13,14 @@ enum Route: Equatable, Identifiable {
 	case paywall
 	case settings
 	case onboarding
+	case shareEditor(ShareEditorContext)
 
 	var id: String {
 		switch self {
 		case .paywall: return "paywall"
 		case .settings: return "settings"
 		case .onboarding: return "onboarding"
+		case .shareEditor: return "shareEditor"
 		}
 	}
 }
