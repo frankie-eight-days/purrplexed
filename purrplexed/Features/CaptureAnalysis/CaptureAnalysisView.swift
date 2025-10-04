@@ -271,8 +271,6 @@ struct CaptureAnalysisView: View {
 		}
 		.padding(.horizontal)
 	}
-	
-	@State private var showStoryEditor = false
 
 	private var analysisResultsView: some View {
 		VStack(spacing: DS.Spacing.s) {
@@ -284,22 +282,6 @@ struct CaptureAnalysisView: View {
 				ParallelAnalysisResultsView(viewModel: viewModel)
 					.padding(.horizontal)
 					.transition(.opacity)
-			}
-		}
-		.overlay(alignment: .bottom) {
-			if viewModel.shareDocument != nil {
-				ShareCtaButton(action: {
-					Haptics.impact(.medium)
-					showStoryEditor = true
-				})
-				.transition(AnyTransition.move(edge: .bottom).combined(with: .opacity))
-				.padding(.horizontal)
-				.padding(.bottom, 24)
-			}
-		}
-		.sheet(isPresented: $showStoryEditor) {
-			if let doc = viewModel.shareDocument {
-				StoryEditorView(document: doc, exportManager: ExportManager())
 			}
 		}
 	}
@@ -358,35 +340,6 @@ struct CaptureAnalysisView: View {
 				}
 			}
 		}
-	}
-}
-
-private struct ShareCtaButton: View {
-	let action: () -> Void
-	
-	var body: some View {
-		Button(action: action) {
-			HStack(spacing: 12) {
-				Image(systemName: "square.and.arrow.up")
-					.font(.headline)
-				Text("Share Story")
-					.font(.headline)
-					.fontWeight(.semibold)
-			}
-			.padding(.vertical, 14)
-			.padding(.horizontal, 22)
-			.foregroundColor(.white)
-			.background(
-				LinearGradient(
-					colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
-					startPoint: .leading,
-					endPoint: .trailing
-				)
-			)
-			.clipShape(Capsule())
-			.shadow(color: Color.black.opacity(0.2), radius: 12, x: 0, y: 8)
-		}
-		.buttonStyle(.plain)
 	}
 }
 
