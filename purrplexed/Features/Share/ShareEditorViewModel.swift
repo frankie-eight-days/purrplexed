@@ -169,8 +169,22 @@ final class ShareEditorViewModel: ObservableObject {
 	private func makeCroppedImage() async -> UIImage? {
 		guard let image = UIImage(data: context.originalImageData) else { return nil }
 		if let catResult = context.catDetectionResult,
-		   let cropped = ImageUtils.cropToFocus(image: image, boundingBox: catResult.boundingBox, paddingRatio: 0.2) {
-			return cropped
+		   let cgImage = image.cgImage {
+			let originalPixelSize = CGSize(width: cgImage.width, height: cgImage.height)
+			let detectionSize = catResult.imageSize
+			let scaleX = originalPixelSize.width / max(detectionSize.width, 1)
+			let scaleY = originalPixelSize.height / max(detectionSize.height, 1)
+			let scaledBoundingBox = CGRect(
+				x: catResult.boundingBox.origin.x * scaleX,
+				y: catResult.boundingBox.origin.y * scaleY,
+				width: catResult.boundingBox.width * scaleX,
+				height: catResult.boundingBox.height * scaleY
+			)
+			let clampedBox = scaledBoundingBox.intersection(CGRect(origin: .zero, size: originalPixelSize))
+			if clampedBox.width > 0, clampedBox.height > 0,
+			   let cropped = ImageUtils.cropToFocus(image: image, boundingBox: clampedBox, paddingRatio: 0.2) {
+				return cropped
+			}
 		}
 		return image
 	}
