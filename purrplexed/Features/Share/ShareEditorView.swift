@@ -18,25 +18,21 @@ struct ShareEditorView: View {
 				let analysisFrameHeight: CGFloat = 336
 				let referenceAspect: CGFloat = proxy.size.width > 0 ? proxy.size.width / analysisFrameHeight : 1
 				let availableWidth = proxy.size.width
-				let maxPreviewHeight = proxy.size.height * 0.55
+				let maxPreviewHeight = proxy.size.height * 0.65
 				let computedHeight = min(availableWidth / referenceAspect, maxPreviewHeight)
 				let previewHeight = computedHeight
-				let editorHeight = proxy.size.height * 0.35
-				let shareHeight = max(proxy.size.height - previewHeight - editorHeight, 96)
 				VStack(spacing: 0) {
 					previewSection
 						.frame(height: previewHeight)
 					Divider()
 					captionEditor
-						.frame(height: editorHeight)
+					Spacer()
 					Divider()
 					shareSection
-						.frame(height: shareHeight)
 				}
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.background(DS.Color.background)
 			}
-			.ignoresSafeArea(edges: .bottom)
 			.toolbar {
 				ToolbarItem(placement: .topBarLeading) {
 					Button("Close") { dismiss() }
@@ -71,7 +67,6 @@ struct ShareEditorView: View {
 					.scaledToFit()
 					.cornerRadius(24)
 					.shadow(color: Color.black.opacity(0.1), radius: 16, x: 0, y: 8)
-					.padding()
 			} else if viewModel.isLoading {
 				ProgressView()
 					.progressViewStyle(.circular)
@@ -82,6 +77,7 @@ struct ShareEditorView: View {
 			}
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.padding(.bottom, DS.Spacing.m)
 	}
 
 	private var captionEditor: some View {
@@ -104,7 +100,7 @@ struct ShareEditorView: View {
 			}
 			.padding()
 		}
-		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.frame(maxWidth: .infinity)
 	}
 
 	private var captionField: some View {
@@ -190,7 +186,6 @@ struct ShareEditorView: View {
 			.buttonStyle(.plain)
 			.disabled(viewModel.isLoading)
 			.padding(.horizontal)
-			Spacer(minLength: 0)
 		}
 		.padding(.top, DS.Spacing.m)
 	}
