@@ -13,14 +13,16 @@ enum ShareCardRenderer {
 		catDetectionResult: CatDetectionResult?,
 		caption: String,
 		brandingText: String = "Purrplexed 🐱",
+		aspect: ShareAspectRatio = .portrait4x5,
 		debug: Bool = false
 	) async -> UIImage? {
 		await Task.detached(priority: .userInitiated) {
-			let targetSize = CGSize(width: 1080, height: 1350)
-			let borderWidth: CGFloat = 15
-			let captionHeight: CGFloat = 150
-			let brandingHeight: CGFloat = 72
-			let cornerRadius: CGFloat = 32
+			let layout = aspect.layout
+			let targetSize = layout.targetSize
+			let borderWidth = layout.borderWidth
+			let captionHeight = layout.captionHeight
+			let brandingHeight = layout.brandingHeight
+			let cornerRadius = layout.cornerRadius
 			let format = UIGraphicsImageRendererFormat.default()
 			format.scale = 2.0
 			let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
@@ -44,14 +46,15 @@ enum ShareCardRenderer {
 						options: []
 					)
 				}
-				let squareSide = targetSize.width - 2 * borderWidth
+				let contentWidth = targetSize.width - 2 * borderWidth
+				let imageHeight = layout.imageHeight(contentWidth: contentWidth)
 				let imageArea = CGRect(
 					x: borderWidth,
 					y: borderWidth,
-					width: squareSide,
-					height: squareSide
+					width: contentWidth,
+					height: imageHeight
 				)
-				let innerRadius: CGFloat = 24
+				let innerRadius: CGFloat = layout.imageCornerRadius
 				let imagePath = UIBezierPath(roundedRect: imageArea, cornerRadius: innerRadius)
 				ctx.saveGState()
 				ctx.addPath(imagePath.cgPath)
@@ -73,39 +76,39 @@ enum ShareCardRenderer {
 				)
 				originalImage.draw(in: adjustedRect)
 				ctx.restoreGState()
-			let captionArea = CGRect(
-				x: borderWidth + 20,
-				y: imageArea.maxY + 22,
-				width: targetSize.width - 2 * borderWidth - 40,
-				height: captionHeight
-			)
-			let paragraph = NSMutableParagraphStyle()
-			paragraph.alignment = .center
-			paragraph.lineBreakMode = .byWordWrapping
-			let captionBackgroundRect = captionArea.insetBy(dx: -18, dy: -14)
-			let captionBackgroundPath = UIBezierPath(roundedRect: captionBackgroundRect, cornerRadius: 28)
-			ctx.saveGState()
-			ctx.addPath(captionBackgroundPath.cgPath)
-			ctx.clip()
-			let gradientColors = [
-				UIColor(white: 1.0, alpha: 0.82).cgColor,
-				UIColor(white: 1.0, alpha: 0.45).cgColor
-			] as CFArray
-			if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: gradientColors, locations: [0, 1]) {
-				ctx.drawLinearGradient(
-					gradient,
-					start: CGPoint(x: captionBackgroundRect.minX, y: captionBackgroundRect.minY),
-					end: CGPoint(x: captionBackgroundRect.minX, y: captionBackgroundRect.maxY),
-					options: []
-				)
-			} else {
-				ctx.setFillColor(UIColor(white: 1.0, alpha: 0.6).cgColor)
-				ctx.fill(captionBackgroundRect)
-			}
-			ctx.restoreGState()
+		let captionArea = CGRect(
+			x: borderWidth + layout.captionHorizontalInset,
+			y: imageArea.maxY + layout.spacingBelowImage,
+			width: targetSize.width - 2 * (borderWidth + layout.captionHorizontalInset),
+			height: captionHeight
+		)
+	let paragraph = NSMutableParagraphStyle()
+	paragraph.alignment = .center
+	paragraph.lineBreakMode = .byWordWrapping
+	let captionBackgroundRect = captionArea.insetBy(dx: -layout.captionBackgroundInsets.width, dy: -layout.captionBackgroundInsets.height)
+	let captionBackgroundPath = UIBezierPath(roundedRect: captionBackgroundRect, cornerRadius: layout.captionBackgroundCornerRadius)
+	ctx.saveGState()
+	ctx.addPath(captionBackgroundPath.cgPath)
+	ctx.clip()
+	let gradientColors = [
+		UIColor(white: 1.0, alpha: 0.82).cgColor,
+		UIColor(white: 1.0, alpha: 0.45).cgColor
+	] as CFArray
+	if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: gradientColors, locations: [0, 1]) {
+		ctx.drawLinearGradient(
+			gradient,
+			start: CGPoint(x: captionBackgroundRect.minX, y: captionBackgroundRect.minY),
+			end: CGPoint(x: captionBackgroundRect.minX, y: captionBackgroundRect.maxY),
+			options: []
+		)
+	} else {
+		ctx.setFillColor(UIColor(white: 1.0, alpha: 0.6).cgColor)
+		ctx.fill(captionBackgroundRect)
+	}
+	ctx.restoreGState()
 			let taglineText = "Purrplexed: The Cat Translator"
-			let taglineHeight: CGFloat = 34
-			let taglineSpacing: CGFloat = 6
+	let taglineHeight: CGFloat = layout.taglineHeight
+	let taglineSpacing: CGFloat = layout.taglineSpacing
 			let captionBodyHeight = max(0, captionArea.height - taglineHeight - taglineSpacing)
 			let captionBodyRect = CGRect(
 				x: captionArea.minX,
@@ -123,10 +126,10 @@ enum ShareCardRenderer {
 			if captionBodyRect.height > 0 {
 				let captionFont = fittingFont(
 					for: clampedCaption,
-					in: captionBodyRect,
-					paragraphStyle: paragraph,
-					maxFontSize: 58,
-					minFontSize: 26, // Adjust this lower if we need to squeeze in even longer captions later.
+			in: captionBodyRect,
+			paragraphStyle: paragraph,
+			maxFontSize: layout.captionMaxFontSize,
+			minFontSize: layout.captionMinFontSize,
 					weight: .semibold,
 					design: .rounded
 				)
@@ -146,13 +149,13 @@ enum ShareCardRenderer {
 				.paragraphStyle: taglineParagraph
 			]
 			taglineText.draw(in: taglineRect, withAttributes: taglineAttributes)
-			let brandingArea = CGRect(
-				x: borderWidth,
-				y: targetSize.height - borderWidth - brandingHeight,
-				width: targetSize.width - 2 * borderWidth,
-				height: brandingHeight
-			)
-			let footerPath = UIBezierPath(roundedRect: brandingArea, cornerRadius: 24)
+	let brandingArea = CGRect(
+		x: borderWidth,
+		y: targetSize.height - borderWidth - brandingHeight,
+		width: targetSize.width - 2 * borderWidth,
+		height: brandingHeight
+	)
+	let footerPath = UIBezierPath(roundedRect: brandingArea, cornerRadius: layout.brandingCornerRadius)
 			ctx.saveGState()
 			ctx.addPath(footerPath.cgPath)
 			let footerGradientColors = [
@@ -171,14 +174,14 @@ enum ShareCardRenderer {
 				ctx.fillPath()
 			}
 			ctx.restoreGState()
-			if let appIcon = brandingIcon() {
-				let iconSize = CGSize(width: 48, height: 48)
-				let iconRect = CGRect(
-					x: brandingArea.minX + 24,
-					y: brandingArea.midY - iconSize.height / 2,
-					width: iconSize.width,
-					height: iconSize.height
-				)
+	if let appIcon = brandingIcon() {
+		let iconSize = layout.brandingIconSize
+		let iconRect = CGRect(
+			x: brandingArea.minX + layout.brandingIconLeadingInset,
+			y: brandingArea.midY - iconSize.height / 2 + layout.brandingIconVerticalOffset,
+			width: iconSize.width,
+			height: iconSize.height
+		)
 				appIcon.draw(in: iconRect, blendMode: .normal, alpha: 0.8)
 			}
 			let brandingParagraph = NSMutableParagraphStyle()
@@ -190,10 +193,10 @@ enum ShareCardRenderer {
 				.paragraphStyle: brandingParagraph
 			]
 			let brandingTextRect = CGRect(
-				x: brandingArea.minX + 96,
-				y: brandingArea.minY + 12,
-				width: brandingArea.width - 120,
-				height: brandingArea.height / 2 - 6
+		x: brandingArea.minX + layout.brandingTextLeadingInset,
+		y: brandingArea.minY + layout.brandingTextTopInset,
+		width: brandingArea.width - layout.brandingTextLeadingInset - layout.brandingTextTrailingInset,
+		height: brandingArea.height / 2 - layout.brandingTextBottomPadding
 			)
 			brandingText.draw(in: brandingTextRect, withAttributes: brandingAttributes)
 			let footerTaglineAttributes: [NSAttributedString.Key: Any] = [
@@ -202,20 +205,20 @@ enum ShareCardRenderer {
 				.paragraphStyle: brandingParagraph
 			]
 			let footerTaglineRect = CGRect(
-				x: brandingTextRect.minX,
-				y: brandingArea.midY + 4,
-				width: brandingTextRect.width,
-				height: brandingArea.height / 2 - 12
+		x: brandingTextRect.minX,
+		y: brandingArea.midY + layout.footerTaglineTopOffset,
+		width: brandingTextRect.width,
+		height: brandingArea.height / 2 - layout.footerTaglineBottomPadding
 			)
 			"Purrplexed: The Cat Translator".draw(in: footerTaglineRect, withAttributes: footerTaglineAttributes)
 			if let icon = brandingIcon() {
-				let watermarkSize = CGSize(width: 120, height: 120)
-				let watermarkRect = CGRect(
-					x: brandingArea.maxX - watermarkSize.width - 16,
-					y: brandingArea.minY - watermarkSize.height - 16,
-					width: watermarkSize.width,
-					height: watermarkSize.height
-				)
+		let watermarkSize = layout.watermarkSize
+		let watermarkRect = CGRect(
+			x: brandingArea.maxX - watermarkSize.width - layout.watermarkTrailingInset,
+			y: brandingArea.minY - watermarkSize.height - layout.watermarkVerticalOffset,
+			width: watermarkSize.width,
+			height: watermarkSize.height
+		)
 				icon.draw(in: watermarkRect, blendMode: .normal, alpha: 0.15)
 			}
 				ctx.addPath(roundedPath.cgPath)

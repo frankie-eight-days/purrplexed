@@ -15,15 +15,18 @@ struct ShareEditorView: View {
 	var body: some View {
 		NavigationStack {
 			GeometryReader { proxy in
-				let analysisFrameHeight: CGFloat = 336
-				let referenceAspect: CGFloat = proxy.size.width > 0 ? proxy.size.width / analysisFrameHeight : 1
+				let selectedAspect = viewModel.selectedAspect
 				let availableWidth = proxy.size.width
 				let maxPreviewHeight = proxy.size.height * 0.65
-				let computedHeight = min(availableWidth / referenceAspect, maxPreviewHeight)
-				let previewHeight = computedHeight
+				let desiredHeight = availableWidth > 0 ? availableWidth * selectedAspect.aspect : 0
+				let previewHeight = max(0, min(desiredHeight, maxPreviewHeight))
 				VStack(spacing: 0) {
-					previewSection
+					previewSection(aspectRatio: selectedAspect)
 						.frame(height: previewHeight)
+						.padding(.bottom, DS.Spacing.s)
+					aspectRatioPicker
+						.padding(.horizontal)
+						.padding(.bottom, DS.Spacing.m)
 					Divider()
 					captionEditor
 					Spacer()
@@ -59,13 +62,13 @@ struct ShareEditorView: View {
 		}
 	}
 
-	private var previewSection: some View {
+	private func previewSection(aspectRatio: ShareAspectRatio) -> some View {
 		ZStack {
 			if let image = viewModel.previewImage {
 				Image(uiImage: image)
 					.resizable()
 					.scaledToFit()
-					.cornerRadius(24)
+					.cornerRadius(aspectRatio.layout.imageCornerRadius)
 					.shadow(color: Color.black.opacity(0.1), radius: 16, x: 0, y: 8)
 			} else if viewModel.isLoading {
 				ProgressView()
@@ -77,7 +80,18 @@ struct ShareEditorView: View {
 			}
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
-		.padding(.bottom, DS.Spacing.m)
+		.aspectRatio(aspectRatio.aspect, contentMode: .fit)
+	}
+
+	private var aspectRatioPicker: some View {
+		Picker("Aspect Ratio", selection: $viewModel.selectedAspect) {
+			ForEach(ShareAspectRatio.allCases) { ratio in
+				Text(ratio.displayName)
+					.tag(ratio)
+					.accessibilityLabel(ratio.accessibilityLabel)
+			}
+		}
+		.pickerStyle(.segmented)
 	}
 
 	private var captionEditor: some View {

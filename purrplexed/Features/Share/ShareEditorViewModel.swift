@@ -17,6 +17,11 @@ final class ShareEditorViewModel: ObservableObject {
 	@Published var selectedChip: String? = nil
 	@Published var selectedEmojis: [String] = []
 	@Published private(set) var previewImage: UIImage? = nil
+	@Published var selectedAspect: ShareAspectRatio = .portrait4x5 {
+		didSet {
+			scheduleRender(force: true)
+		}
+	}
 	@Published var isLoading: Bool = false
 	@Published var showError: Bool = false
 	@Published var shareItem: ShareableItem? = nil
@@ -144,6 +149,7 @@ final class ShareEditorViewModel: ObservableObject {
 			originalImage: baseImage,
 			catDetectionResult: adjustedCatDetectionResult(for: baseImage),
 			caption: captionToRender,
+			aspect: selectedAspect,
 			debug: true
 		)
 		await MainActor.run { [weak self] in
