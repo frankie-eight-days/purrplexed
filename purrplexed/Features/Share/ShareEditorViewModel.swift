@@ -17,7 +17,7 @@ final class ShareEditorViewModel: ObservableObject {
 	@Published var selectedChip: String? = nil
 	@Published var selectedEmojis: [String] = []
 	@Published private(set) var previewImage: UIImage? = nil
-	@Published var selectedAspect: ShareAspectRatio = .portrait4x5 {
+	@Published var selectedAspect: ShareAspectRatio = .square1x1 {
 		didSet {
 			scheduleRender(force: true)
 		}

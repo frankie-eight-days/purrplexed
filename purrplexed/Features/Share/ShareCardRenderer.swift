@@ -13,7 +13,7 @@ enum ShareCardRenderer {
 		catDetectionResult: CatDetectionResult?,
 		caption: String,
 		brandingText: String = "Purrplexed 🐱",
-		aspect: ShareAspectRatio = .portrait4x5,
+		aspect: ShareAspectRatio = .square1x1,
 		debug: Bool = false
 	) async -> UIImage? {
 		await Task.detached(priority: .userInitiated) {
@@ -106,27 +106,11 @@ enum ShareCardRenderer {
 		ctx.fill(captionBackgroundRect)
 	}
 	ctx.restoreGState()
-			let taglineText = "Purrplexed: The Cat Translator"
-	let taglineHeight: CGFloat = layout.taglineHeight
-	let taglineSpacing: CGFloat = layout.taglineSpacing
-			let captionBodyHeight = max(0, captionArea.height - taglineHeight - taglineSpacing)
-			let captionBodyRect = CGRect(
-				x: captionArea.minX,
-				y: captionArea.minY,
-				width: captionArea.width,
-				height: captionBodyHeight
-			)
-			let taglineRect = CGRect(
-				x: captionArea.minX,
-				y: captionArea.minY + captionBodyHeight + taglineSpacing,
-				width: captionArea.width,
-				height: taglineHeight
-			)
 			let clampedCaption = String(caption.trimmingCharacters(in: .whitespacesAndNewlines).prefix(150))
-			if captionBodyRect.height > 0 {
+			if captionArea.height > 0 {
 				let captionFont = fittingFont(
 					for: clampedCaption,
-			in: captionBodyRect,
+			in: captionArea,
 			paragraphStyle: paragraph,
 			maxFontSize: layout.captionMaxFontSize,
 			minFontSize: layout.captionMinFontSize,
@@ -138,17 +122,8 @@ enum ShareCardRenderer {
 					.foregroundColor: UIColor.black,
 					.paragraphStyle: paragraph
 				]
-				clampedCaption.draw(in: captionBodyRect, withAttributes: captionAttributes)
+				clampedCaption.draw(in: captionArea, withAttributes: captionAttributes)
 			}
-			let taglineParagraph = NSMutableParagraphStyle()
-			taglineParagraph.alignment = .center
-			taglineParagraph.lineBreakMode = .byTruncatingTail
-			let taglineAttributes: [NSAttributedString.Key: Any] = [
-				.font: roundedFont(ofSize: 24, weight: .medium),
-				.foregroundColor: UIColor(white: 0.2, alpha: 0.8),
-				.paragraphStyle: taglineParagraph
-			]
-			taglineText.draw(in: taglineRect, withAttributes: taglineAttributes)
 	let brandingArea = CGRect(
 		x: borderWidth,
 		y: targetSize.height - borderWidth - brandingHeight,
@@ -196,7 +171,7 @@ enum ShareCardRenderer {
 		x: brandingArea.minX + layout.brandingTextLeadingInset,
 		y: brandingArea.minY + layout.brandingTextTopInset,
 		width: brandingArea.width - layout.brandingTextLeadingInset - layout.brandingTextTrailingInset,
-		height: brandingArea.height / 2 - layout.brandingTextBottomPadding
+		height: brandingArea.height - layout.brandingTextTopInset - layout.brandingTextBottomPadding
 			)
 			brandingText.draw(in: brandingTextRect, withAttributes: brandingAttributes)
 			let footerTaglineAttributes: [NSAttributedString.Key: Any] = [

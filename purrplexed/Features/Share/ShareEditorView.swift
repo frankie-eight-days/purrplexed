@@ -24,9 +24,6 @@ struct ShareEditorView: View {
 					previewSection(aspectRatio: selectedAspect)
 						.frame(height: previewHeight)
 						.padding(.bottom, DS.Spacing.s)
-					aspectRatioPicker
-						.padding(.horizontal)
-						.padding(.bottom, DS.Spacing.m)
 					Divider()
 					captionEditor
 					Spacer()
@@ -81,17 +78,6 @@ struct ShareEditorView: View {
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.aspectRatio(aspectRatio.aspect, contentMode: .fit)
-	}
-
-	private var aspectRatioPicker: some View {
-		Picker("Aspect Ratio", selection: $viewModel.selectedAspect) {
-			ForEach(ShareAspectRatio.allCases) { ratio in
-				Text(ratio.displayName)
-					.tag(ratio)
-					.accessibilityLabel(ratio.accessibilityLabel)
-			}
-		}
-		.pickerStyle(.segmented)
 	}
 
 	private var captionEditor: some View {
