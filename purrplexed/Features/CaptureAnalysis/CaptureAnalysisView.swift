@@ -292,15 +292,21 @@ struct CaptureAnalysisView: View {
 	}
 
 	private var analysisResultsView: some View {
-		VStack(spacing: DS.Spacing.s) {
+		let hasParallelData = viewModel.emotionSummary != nil ||
+			viewModel.bodyLanguageAnalysis != nil ||
+			viewModel.contextualEmotion != nil ||
+			viewModel.ownerAdvice != nil ||
+			viewModel.catJokes != nil
+		let shouldRenderResults = viewModel.isAnalyzing || hasParallelData || viewModel.state.isReady
+		return VStack(spacing: DS.Spacing.s) {
 			if !viewModel.partialAnalysisErrors.isEmpty {
 				AnalysisErrorBanner(messages: viewModel.partialAnalysisErrors)
 					.padding(.horizontal)
 			}
-			if viewModel.emotionSummary != nil || viewModel.state.isReady {
+			if shouldRenderResults {
 				ParallelAnalysisResultsView(viewModel: viewModel)
 					.padding(.horizontal)
-					.transition(.opacity)
+					.transition(.opacity.combined(with: .scale(scale: 0.98)))
 			}
 		}
 	}
@@ -354,8 +360,35 @@ struct CaptureAnalysisView: View {
 struct ParallelAnalysisResultsView: View {
 	@ObservedObject var viewModel: CaptureAnalysisViewModel
 	@State private var expandedSections: Set<AnalysisSection> = []
-	@State private var showEmotionSummary = false
+    @State private var revealItems: [RevealItem] = []
+    @State private var activeRunID = UUID()
+    @State private var revealSequenceTask: Task<Void, Never>? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@Environment(\.services) private var services
+
+    struct RevealItem: Identifiable, Equatable {
+        enum Phase: Equatable {
+            case staging
+            case revealing
+            case shown
+        }
+
+        enum Direction {
+            case leading
+            case trailing
+        }
+
+        enum Kind: Equatable {
+            case emotionSummary
+            case section(AnalysisSection)
+            case share
+        }
+
+        let id: UUID
+        var kind: Kind
+        var direction: Direction
+        var phase: Phase
+    }
 	
 	enum AnalysisSection: String, CaseIterable {
 		case bodyLanguage = "Body Language"
@@ -365,83 +398,276 @@ struct ParallelAnalysisResultsView: View {
 	}
 	
 	var body: some View {
-		VStack(spacing: DS.Spacing.m) {
-			// Emotion Summary - Always visible when available
-			if showEmotionSummary, let emotionSummary = viewModel.emotionSummary {
-				VStack(alignment: .leading, spacing: DS.Spacing.s) {
-					HStack {
-						Image(systemName: "heart.fill")
-							.foregroundColor(DS.Color.accent)
-						Text("Emotion Summary")
-							.font(DS.Typography.titleFont())
-							.fontWeight(.semibold)
-						Spacer()
-					}
-					
-					VStack(alignment: .leading, spacing: 8) {
-						HStack {
-							Text("Emotion:")
-								.fontWeight(.medium)
-							HStack(spacing: 4) {
-								Text(emotionSummary.emoji)
-								Text(emotionSummary.emotion)
-							}
-							.foregroundColor(colorForMoodType(emotionSummary.moodType))
-							Spacer()
-							Text("(\(emotionSummary.intensity))")
-								.font(.caption)
-								.foregroundColor(.secondary)
-						}
-						
-						Text(emotionSummary.description)
-							.font(DS.Typography.bodyFont())
-							.fixedSize(horizontal: false, vertical: true)
-						
-						if let warningMessage = emotionSummary.warningMessage, !warningMessage.isEmpty {
-							HStack(alignment: .top, spacing: 8) {
-								Image(systemName: "exclamationmark.triangle.fill")
-									.foregroundColor(.red)
-								Text(warningMessage)
-									.font(DS.Typography.bodyFont())
-									.fontWeight(.medium)
-									.foregroundColor(.red)
-									.fixedSize(horizontal: false, vertical: true)
-							}
-							.padding(.top, 4)
-						}
-					}
-				}
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.padding()
-				.background(Color.blue.opacity(0.15))
-				.clipShape(RoundedRectangle(cornerRadius: 12))
-				.transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
-			}
-			
-			// Expandable Tray Cards for other analyses with staggered animations
-			ForEach(Array(AnalysisSection.allCases.enumerated()), id: \.element.rawValue) { index, section in
-				if shouldShowSection(section) {
+		let trays = revealItems.map { item -> AnyView in
+			switch item.kind {
+			case .emotionSummary:
+				return AnyView(emotionSummaryCard)
+			case .section(let section):
+				return AnyView(
 					AnalysisTrayCard(
 						section: section,
 						isExpanded: expandedSections.contains(section),
-						isLoading: isLoading(for: section),
+						isContentReady: isContentReady(for: section),
 						onToggle: { toggleSection(section) },
-						content: contentForSection(section)
+						content: { sectionContent(for: section) },
+						placeholder: { placeholderForSection(section) }
 					)
-					.transition(.asymmetric(
-						insertion: .move(edge: index.isMultiple(of: 2) ? .leading : .trailing)
-							.combined(with: .opacity.combined(with: .scale(scale: 0.8))),
-						removal: .opacity.combined(with: .scale(scale: 0.9))
-					))
-					.animation(
-						.spring(response: 0.6, dampingFraction: 0.8, blendDuration: 0.1)
-							.delay(Double(index) * 0.15), // Stagger by 150ms per card
-						value: shouldShowSection(section)
-					)
-				}
+				)
+			case .share:
+				return AnyView(shareButton)
 			}
-		
-		if shouldShowShareButton() {
+		}
+
+		return VStack(spacing: DS.Spacing.m) {
+			ForEach(Array(zip(revealItems, trays)), id: \.0.id) { item, view in
+				view
+					.revealPhase(item.phase, direction: item.direction, reduceMotion: reduceMotion)
+			}
+
+			classicFallbackView
+		}
+		.onAppear { handleAppear() }
+		.onChange(of: viewModel.isAnalyzing) { isAnalyzing in
+			if isAnalyzing {
+				startNewRun()
+			} else {
+				updateRevealsForData()
+			}
+		}
+		.onChange(of: viewModel.emotionSummary) { _ in updateRevealsForData() }
+		.onChange(of: viewModel.bodyLanguageAnalysis) { _ in updateRevealsForData() }
+		.onChange(of: viewModel.contextualEmotion) { _ in updateRevealsForData() }
+		.onChange(of: viewModel.ownerAdvice) { _ in updateRevealsForData() }
+		.onChange(of: viewModel.catJokes) { _ in updateRevealsForData() }
+		.onChange(of: viewModel.state) { _ in updateRevealsForData() }
+		.onDisappear {
+			revealSequenceTask?.cancel()
+			revealSequenceTask = nil
+		}
+	}
+
+    private func handleAppear() {
+        synchronizeRevealItems(resetPhases: false)
+        if reduceMotion {
+            setAllShown()
+        } else {
+            for index in revealItems.indices where revealItems[index].phase == .staging {
+                revealItems[index].phase = .shown
+            }
+        }
+
+        if viewModel.isAnalyzing {
+            startNewRun()
+        } else {
+            updateRevealsForData()
+        }
+    }
+
+    private func startNewRun() {
+        activeRunID = UUID()
+        revealSequenceTask?.cancel()
+        revealSequenceTask = nil
+        expandedSections.removeAll()
+        synchronizeRevealItems(resetPhases: true)
+        if reduceMotion {
+            setAllShown()
+        } else {
+            startRevealSequence()
+        }
+    }
+
+    private func updateRevealsForData() {
+        synchronizeRevealItems(resetPhases: false)
+        if reduceMotion {
+            setAllShown()
+            return
+        }
+
+        if revealItems.contains(where: { $0.phase == .staging }) {
+            startRevealSequence()
+        } else {
+            for index in revealItems.indices where revealItems[index].phase == .revealing {
+                animatePhaseChange { revealItems[index].phase = .shown }
+            }
+        }
+    }
+
+    private func synchronizeRevealItems(resetPhases: Bool) {
+        let kinds = stageKinds()
+        var nextItems: [RevealItem] = []
+
+        for (index, kind) in kinds.enumerated() {
+            let direction: RevealItem.Direction = index.isMultiple(of: 2) ? .leading : .trailing
+
+            if let existingIndex = revealItems.firstIndex(where: { $0.kind == kind }) {
+                var item = revealItems[existingIndex]
+                item.direction = direction
+                if resetPhases {
+                    item.phase = reduceMotion ? .shown : .staging
+                }
+                nextItems.append(item)
+            } else {
+                let initialPhase: RevealItem.Phase = reduceMotion ? .shown : .staging
+                let item = RevealItem(id: UUID(), kind: kind, direction: direction, phase: initialPhase)
+                nextItems.append(item)
+            }
+        }
+
+        revealItems = nextItems
+    }
+
+    private func stageKinds() -> [RevealItem.Kind] {
+        var kinds: [RevealItem.Kind] = []
+
+        if viewModel.isAnalyzing || viewModel.emotionSummary != nil {
+            kinds.append(.emotionSummary)
+        }
+
+        let coreSections: [AnalysisSection] = [.bodyLanguage, .contextualEmotion, .ownerAdvice]
+        for section in coreSections {
+            if viewModel.isAnalyzing || isContentReady(for: section) {
+                kinds.append(.section(section))
+            }
+        }
+
+        if viewModel.catJokes != nil {
+            kinds.append(.section(.catJokes))
+        }
+
+        if shouldShowShareButton() {
+            kinds.append(.share)
+        }
+
+        return kinds
+    }
+
+    private func startRevealSequence() {
+        guard !reduceMotion else {
+            setAllShown()
+            return
+        }
+
+        let runID = activeRunID
+        revealSequenceTask?.cancel()
+        let itemsToReveal = revealItems.filter { $0.phase == .staging }
+        guard !itemsToReveal.isEmpty else { return }
+
+        revealSequenceTask = Task {
+            await runRevealSequence(runID: runID, itemsToReveal: itemsToReveal)
+        }
+    }
+
+    @MainActor
+    private func runRevealSequence(runID: UUID, itemsToReveal: [RevealItem]) async {
+        let step: UInt64 = 140_000_000
+
+        for (offset, item) in itemsToReveal.enumerated() {
+            let delay = UInt64(offset) * step
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+
+            guard !Task.isCancelled, runID == activeRunID else { return }
+            if let index = revealItems.firstIndex(where: { $0.id == item.id }) {
+                animatePhaseChange { revealItems[index].phase = .revealing }
+            }
+
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            guard !Task.isCancelled, runID == activeRunID else { return }
+            if let index = revealItems.firstIndex(where: { $0.id == item.id }) {
+                animatePhaseChange { revealItems[index].phase = .shown }
+            }
+        }
+
+        revealSequenceTask = nil
+    }
+
+    private func setAllShown() {
+        for index in revealItems.indices {
+            revealItems[index].phase = .shown
+        }
+    }
+
+    private func animatePhaseChange(_ updates: @escaping () -> Void) {
+        if reduceMotion {
+            updates()
+        } else {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.85, blendDuration: 0.2)) {
+                updates()
+            }
+        }
+    }
+
+    private func emotionSummaryCard(isPlaceholder: Bool) -> some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.s) {
+            HStack {
+                Image(systemName: "heart.fill")
+                    .foregroundColor(isPlaceholder ? Color.primary.opacity(0.25) : DS.Color.accent)
+                Text("Emotion Summary")
+                    .font(DS.Typography.titleFont())
+                    .fontWeight(.semibold)
+                Spacer()
+            }
+            .redacted(reason: isPlaceholder ? .placeholder : [])
+
+            VStack(alignment: .leading, spacing: 8) {
+                if isPlaceholder {
+                    VStack(alignment: .leading, spacing: 6) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.primary.opacity(0.08))
+                            .frame(height: 12)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.primary.opacity(0.08))
+                            .frame(height: 12)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.primary.opacity(0.08))
+                            .frame(height: 12)
+                    }
+                } else if let summary = viewModel.emotionSummary {
+                    HStack {
+                        Text("Emotion:")
+                            .fontWeight(.medium)
+                        HStack(spacing: 4) {
+                            Text(summary.emoji)
+                            Text(summary.emotion)
+                        }
+                        .foregroundColor(colorForMoodType(summary.moodType))
+                        Spacer()
+                        Text("(\(summary.intensity))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text(summary.description)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let warning = summary.warningMessage, !warning.isEmpty {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.red)
+                            Text(warning)
+                                .fontWeight(.medium)
+                                .foregroundColor(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+            }
+            .font(DS.Typography.bodyFont())
+            .redacted(reason: isPlaceholder ? .placeholder : [])
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color.blue.opacity(0.15))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var emotionSummaryCard: some View {
+        AnyView(emotionSummaryCard(isPlaceholder: viewModel.emotionSummary == nil))
+    }
+
+    private var shareButton: some View {
  		Button {
  			presentShareEditor()
  		} label: {
@@ -461,7 +687,8 @@ struct ParallelAnalysisResultsView: View {
 			.accessibilityIdentifier("share-button")
 		}
 			
-			// Classic results fallback for backwards compatibility
+    @ViewBuilder
+    private var classicFallbackView: some View {
 			if case .ready(let result) = viewModel.state, viewModel.emotionSummary == nil {
 				VStack(alignment: .leading, spacing: DS.Spacing.s) {
 					Text(result.translatedText)
@@ -471,74 +698,73 @@ struct ParallelAnalysisResultsView: View {
 				.padding()
 				.background(Color.gray.opacity(0.24))
 				.clipShape(RoundedRectangle(cornerRadius: 12))
-			}
-		}
-		.onAppear {
-			showEmotionSummary = viewModel.emotionSummary != nil
-		}
-		.onChange(of: viewModel.emotionSummary) {
-			showEmotionSummary = viewModel.emotionSummary != nil
-		}
-	}
-	
-	private func shouldShowSection(_ section: AnalysisSection) -> Bool {
-		// Once the summary is loaded, show the core analysis sections (in a loading state if needed)
-		if viewModel.emotionSummary != nil {
-			switch section {
-			case .bodyLanguage, .contextualEmotion, .ownerAdvice:
-				return true
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private func sectionContent(for section: AnalysisSection) -> some View {
+        switch section {
+        case .bodyLanguage:
+            if let analysis = viewModel.bodyLanguageAnalysis {
+                BodyLanguageContentView(analysis: analysis)
+            }
+        case .contextualEmotion:
+            if let analysis = viewModel.contextualEmotion {
+                ContextualEmotionContentView(analysis: analysis)
+            }
+        case .ownerAdvice:
+            if let analysis = viewModel.ownerAdvice {
+                OwnerAdviceContentView(analysis: analysis)
+            }
 			case .catJokes:
-				// Only show cat jokes when the data is present, as it's optional content
-				return viewModel.catJokes != nil
+            if let jokes = viewModel.catJokes {
+                CatJokesContentView(jokes: jokes)
 			}
 		}
-		// Fallback for cat jokes in case they load without a summary (unlikely but safe)
-		if section == .catJokes {
-			return viewModel.catJokes != nil
-		}
-		return false
 	}
 	
-	private func isLoading(for section: AnalysisSection) -> Bool {
+    @ViewBuilder
+    private func placeholderForSection(_ section: AnalysisSection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch section {
+            case .bodyLanguage:
+                placeholderLines(5)
+            case .contextualEmotion:
+                placeholderLines(4)
+            case .ownerAdvice:
+                placeholderLines(5)
+            case .catJokes:
+                placeholderLines(3)
+            }
+        }
+        .font(DS.Typography.bodyFont())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundColor(.primary.opacity(0.25))
+        .redacted(reason: .placeholder)
+    }
+
+    private func placeholderLines(_ count: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(0..<count, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(height: 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func isContentReady(for section: AnalysisSection) -> Bool {
 		switch section {
 		case .bodyLanguage:
-			return viewModel.bodyLanguageAnalysis == nil
+            return viewModel.bodyLanguageAnalysis != nil
 		case .contextualEmotion:
-			return viewModel.contextualEmotion == nil
+            return viewModel.contextualEmotion != nil
 		case .ownerAdvice:
-			return viewModel.ownerAdvice == nil
+            return viewModel.ownerAdvice != nil
 		case .catJokes:
-			return false // Cat jokes view is only shown when loaded
-		}
-	}
-	
-	private func toggleSection(_ section: AnalysisSection) {
-		if expandedSections.contains(section) {
-			expandedSections.remove(section)
-		} else {
-			expandedSections.insert(section)
-		}
-	}
-	
-	@ViewBuilder
-	private func contentForSection(_ section: AnalysisSection) -> some View {
-		switch section {
-		case .bodyLanguage:
-			if let analysis = viewModel.bodyLanguageAnalysis {
-				BodyLanguageContentView(analysis: analysis)
-			}
-		case .contextualEmotion:
-			if let analysis = viewModel.contextualEmotion {
-				ContextualEmotionContentView(analysis: analysis)
-			}
-		case .ownerAdvice:
-			if let analysis = viewModel.ownerAdvice {
-				OwnerAdviceContentView(analysis: analysis)
-			}
-		case .catJokes:
-			if let jokes = viewModel.catJokes {
-				CatJokesContentView(jokes: jokes)
-			}
+            return viewModel.catJokes != nil
 		}
 	}
 
@@ -558,20 +784,70 @@ struct ParallelAnalysisResultsView: View {
  		}
  		services.router.present(.shareEditor(context))
  	}
+
+    private func toggleSection(_ section: AnalysisSection) {
+        guard isContentReady(for: section) else { return }
+        if expandedSections.contains(section) {
+            expandedSections.remove(section)
+        } else {
+            expandedSections.insert(section)
+        }
+    }
 }
 
 // MARK: - Tray Card Component
 
-struct AnalysisTrayCard<Content: View>: View {
+struct AnalysisTrayCard<Content: View, Placeholder: View>: View {
 	let section: ParallelAnalysisResultsView.AnalysisSection
 	let isExpanded: Bool
-	let isLoading: Bool
+    let isContentReady: Bool
 	let onToggle: () -> Void
-	let content: Content
+    private let contentBuilder: () -> Content
+    private let placeholderBuilder: () -> Placeholder
+
+    init(
+        section: ParallelAnalysisResultsView.AnalysisSection,
+        isExpanded: Bool,
+        isContentReady: Bool,
+        onToggle: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) {
+        self.section = section
+        self.isExpanded = isExpanded
+        self.isContentReady = isContentReady
+        self.onToggle = onToggle
+        self.contentBuilder = content
+        self.placeholderBuilder = placeholder
+    }
 	
 	var body: some View {
 		VStack(spacing: 0) {
-			// Header
+            header
+
+            Group {
+                if isContentReady {
+                    if isExpanded {
+                        contentBuilder()
+                            .padding(.horizontal)
+                            .padding(.bottom)
+                            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+                    }
+                } else {
+                    placeholderBuilder()
+                        .padding(.horizontal)
+                        .padding(.bottom)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .background(backgroundColorForSection(section))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .animation(.easeInOut(duration: 0.3), value: isExpanded)
+        .animation(.easeInOut(duration: 0.3), value: isContentReady)
+    }
+
+    private var header: some View {
 			HStack {
 				Image(systemName: iconForSection(section))
 					.foregroundColor(colorForSection(section))
@@ -580,7 +856,7 @@ struct AnalysisTrayCard<Content: View>: View {
 					.fontWeight(.medium)
 					.foregroundColor(.primary)
 				Spacer()
-				if isLoading {
+            if !isContentReady {
 					ProgressView()
 						.progressViewStyle(CircularProgressViewStyle())
 						.scaleEffect(0.7)
@@ -589,24 +865,15 @@ struct AnalysisTrayCard<Content: View>: View {
 				Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
 					.font(.caption)
 					.foregroundColor(.secondary)
-					.opacity(isLoading ? 0 : 1)
+                .opacity(isContentReady ? 1 : 0)
 			}
 			.padding()
 			.contentShape(Rectangle())
-			.onTapGesture(perform: onToggle)
-			.allowsHitTesting(!isLoading)
-			
-			// Content
-			if isExpanded, !isLoading {
-				content
-					.padding(.horizontal)
-					.padding(.bottom)
-					.transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
-			}
-		}
-		.background(backgroundColorForSection(section))
-		.clipShape(RoundedRectangle(cornerRadius: 12))
-		.animation(.easeInOut(duration: 0.3), value: isExpanded)
+        .onTapGesture {
+            guard isContentReady else { return }
+            onToggle()
+        }
+        .opacity(isContentReady ? 1 : 0.9)
 	}
 	
 	private func iconForSection(_ section: ParallelAnalysisResultsView.AnalysisSection) -> String {
@@ -634,6 +901,48 @@ struct AnalysisTrayCard<Content: View>: View {
 		case .ownerAdvice: return Color.purple.opacity(0.15)
 		case .catJokes: return Color.yellow.opacity(0.15)
 		}
+	}
+}
+
+private extension View {
+    func revealPhase(
+        _ phase: ParallelAnalysisResultsView.RevealItem.Phase,
+        direction: ParallelAnalysisResultsView.RevealItem.Direction,
+        reduceMotion: Bool
+    ) -> some View {
+        modifier(RevealPhaseModifier(phase: phase, direction: direction, reduceMotion: reduceMotion))
+    }
+}
+
+fileprivate struct RevealPhaseModifier: ViewModifier {
+    let phase: ParallelAnalysisResultsView.RevealItem.Phase
+    let direction: ParallelAnalysisResultsView.RevealItem.Direction
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .offset(x: offset)
+            .scaleEffect(scale)
+    }
+
+    private var opacity: Double {
+        reduceMotion ? 1 : (phase == .staging ? 0 : 1)
+    }
+
+    private var offset: CGFloat {
+        guard !reduceMotion else { return 0 }
+        switch phase {
+        case .staging:
+            return direction == .leading ? -240 : 240
+        case .revealing, .shown:
+            return 0
+        }
+    }
+
+    private var scale: CGFloat {
+        guard !reduceMotion else { return 1 }
+        return phase == .revealing ? 1.02 : 1
 	}
 }
 
@@ -864,3 +1173,4 @@ private func colorForMoodType(_ mood: String) -> Color {
 	)
 	CaptureAnalysisView(viewModel: vm)
 }
+
