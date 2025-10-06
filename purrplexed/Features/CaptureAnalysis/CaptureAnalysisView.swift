@@ -46,7 +46,15 @@ struct CaptureAnalysisView: View {
 		"Analyzing whiskers…",
 		"Reviewing posture…",
 		"Decoding emotions…",
-		"Drafting advice…"
+		"Drafting advice…",
+		"Reading tail signals…",
+		"Studying ear positions…",
+		"Examining paw placement…",
+		"Interpreting meow tone…",
+		"Consulting cat experts…",
+		"Checking body language…",
+		"Measuring purr levels…",
+		"Detecting belly traps…"
 	]
 	private let statusTimer = Timer.publish(every: 1.8, on: .main, in: .common).autoconnect()
 	
@@ -56,10 +64,10 @@ struct CaptureAnalysisView: View {
 		ScrollView {
 			VStack {
 				photoPickerButton
+					.animation(.none, value: viewModel.isAnalyzing) // Prevent animation propagation to image
 				catFocusButtonView
 				noCatDetectedBanner
 				analyzeButton
-				analysisStatusTicker
 				analysisResultsView
 				Spacer()
 			}
@@ -82,9 +90,8 @@ struct CaptureAnalysisView: View {
 		.onAppear(perform: setup)
 		.onReceive(statusTimer) { _ in
 			guard viewModel.isAnalyzing else { return }
-			withAnimation(.easeInOut(duration: 0.35)) {
-				statusMessageIndex = (statusMessageIndex + 1) % statusMessages.count
-			}
+			// Update without animation to prevent propagation
+			statusMessageIndex = (statusMessageIndex + 1) % statusMessages.count
 		}
 		.onChange(of: viewModel.isAnalyzing) { isAnalyzing in
 			if isAnalyzing {
@@ -254,17 +261,29 @@ struct CaptureAnalysisView: View {
 	private var analyzeButton: some View {
 		HStack(spacing: 8) {
 			Button(action: { viewModel.didTapAnalyze() }) {
-				if viewModel.isAnalyzing {
-					ProgressView()
-						.progressViewStyle(CircularProgressViewStyle(tint: .white))
-						.frame(maxWidth: .infinity)
-						.padding(.vertical, 14)
-				} else {
-					Text(Localized("action_analyze"))
+				HStack(spacing: 8) {
+					ZStack {
+						// Progress indicator (visible when analyzing)
+						ProgressView()
+							.progressViewStyle(CircularProgressViewStyle(tint: .white))
+							.opacity(viewModel.isAnalyzing ? 1 : 0)
+						
+						// Icon (visible when not analyzing)
+						Image(systemName: "wand.and.stars")
+							.opacity(viewModel.isAnalyzing ? 0 : 1)
+					}
+					.frame(width: 20, height: 20)
+					
+					// Text that changes - shows status messages when analyzing
+					Text(viewModel.isAnalyzing ? statusMessages[statusMessageIndex] : Localized("action_analyze"))
 						.font(DS.Typography.buttonFont())
-						.frame(maxWidth: .infinity)
-						.padding(.vertical, 14)
+						.id("\(viewModel.isAnalyzing)-\(statusMessageIndex)") // Force text transition on change
 				}
+				.frame(maxWidth: .infinity)
+				.padding(.vertical, 14)
+				.contentShape(Rectangle())
+				.animation(.easeInOut(duration: 0.3), value: viewModel.isAnalyzing)
+				.animation(.easeInOut(duration: 0.3), value: statusMessageIndex)
 			}
 			.buttonStyle(.borderedProminent)
 			.disabled(viewModel.thumbnailData == nil || viewModel.isAnalyzing || viewModel.catDetectionBlocking)
@@ -284,19 +303,6 @@ struct CaptureAnalysisView: View {
 					.transition(.opacity)
 			}
 		}
-	}
-
-	private var analysisStatusTicker: some View {
-		Group {
-			if viewModel.isAnalyzing {
-				Text(statusMessages[statusMessageIndex])
-					.font(DS.Typography.captionFont())
-					.foregroundColor(.secondary)
-					.padding(.top, 8)
-					.transition(.opacity.combined(with: .scale))
-			}
-		}
-		.animation(.easeInOut(duration: 0.35), value: viewModel.isAnalyzing)
 	}
 	
 	private func handleCameraAction() {
