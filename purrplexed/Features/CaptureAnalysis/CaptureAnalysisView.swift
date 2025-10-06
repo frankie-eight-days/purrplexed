@@ -407,11 +407,10 @@ struct ParallelAnalysisResultsView: View {
 					AnalysisTrayCard(
 						section: section,
 						isExpanded: expandedSections.contains(section),
-						isContentReady: isContentReady(for: section),
-						onToggle: { toggleSection(section) },
-						content: { sectionContent(for: section) },
-						placeholder: { placeholderForSection(section) }
-					)
+						onToggle: { toggleSection(section) }
+					) {
+						sectionContent(for: section)
+					}
 				)
 			case .share:
 				return AnyView(shareButton)
@@ -519,14 +518,19 @@ struct ParallelAnalysisResultsView: View {
     private func stageKinds() -> [RevealItem.Kind] {
         var kinds: [RevealItem.Kind] = []
 
-        if viewModel.isAnalyzing || viewModel.emotionSummary != nil {
+        if viewModel.emotionSummary != nil {
             kinds.append(.emotionSummary)
         }
 
         let coreSections: [AnalysisSection] = [.bodyLanguage, .contextualEmotion, .ownerAdvice]
         for section in coreSections {
-            if viewModel.isAnalyzing || isContentReady(for: section) {
+            switch section {
+            case .bodyLanguage where viewModel.bodyLanguageAnalysis != nil,
+                 .contextualEmotion where viewModel.contextualEmotion != nil,
+                 .ownerAdvice where viewModel.ownerAdvice != nil:
                 kinds.append(.section(section))
+            default:
+                break
             }
         }
 
@@ -598,32 +602,19 @@ struct ParallelAnalysisResultsView: View {
         }
     }
 
-    private func emotionSummaryCard(isPlaceholder: Bool) -> some View {
+    private var emotionSummaryCard: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.s) {
             HStack {
                 Image(systemName: "heart.fill")
-                    .foregroundColor(isPlaceholder ? Color.primary.opacity(0.25) : DS.Color.accent)
+                    .foregroundColor(DS.Color.accent)
                 Text("Emotion Summary")
                     .font(DS.Typography.titleFont())
                     .fontWeight(.semibold)
                 Spacer()
             }
-            .redacted(reason: isPlaceholder ? .placeholder : [])
 
-            VStack(alignment: .leading, spacing: 8) {
-                if isPlaceholder {
-                    VStack(alignment: .leading, spacing: 6) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.primary.opacity(0.08))
-                            .frame(height: 12)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.primary.opacity(0.08))
-                            .frame(height: 12)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.primary.opacity(0.08))
-                            .frame(height: 12)
-                    }
-                } else if let summary = viewModel.emotionSummary {
+            if let summary = viewModel.emotionSummary {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Emotion:")
                             .fontWeight(.medium)
@@ -654,17 +645,11 @@ struct ParallelAnalysisResultsView: View {
                     }
                 }
             }
-            .font(DS.Typography.bodyFont())
-            .redacted(reason: isPlaceholder ? .placeholder : [])
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color.blue.opacity(0.15))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var emotionSummaryCard: some View {
-        AnyView(emotionSummaryCard(isPlaceholder: viewModel.emotionSummary == nil))
     }
 
     private var shareButton: some View {
@@ -724,49 +709,18 @@ struct ParallelAnalysisResultsView: View {
 		}
 	}
 	
-    @ViewBuilder
-    private func placeholderForSection(_ section: AnalysisSection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            switch section {
-            case .bodyLanguage:
-                placeholderLines(5)
-            case .contextualEmotion:
-                placeholderLines(4)
-            case .ownerAdvice:
-                placeholderLines(5)
-            case .catJokes:
-                placeholderLines(3)
-            }
-        }
-        .font(DS.Typography.bodyFont())
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundColor(.primary.opacity(0.25))
-        .redacted(reason: .placeholder)
-    }
-
-    private func placeholderLines(_ count: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(0..<count, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.primary.opacity(0.08))
-                    .frame(height: 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
     private func isContentReady(for section: AnalysisSection) -> Bool {
-		switch section {
-		case .bodyLanguage:
+        switch section {
+        case .bodyLanguage:
             return viewModel.bodyLanguageAnalysis != nil
-		case .contextualEmotion:
+        case .contextualEmotion:
             return viewModel.contextualEmotion != nil
-		case .ownerAdvice:
+        case .ownerAdvice:
             return viewModel.ownerAdvice != nil
-		case .catJokes:
+        case .catJokes:
             return viewModel.catJokes != nil
-		}
-	}
+        }
+    }
 
 	private func shouldShowShareButton() -> Bool {
 		viewModel.emotionSummary != nil &&
@@ -786,7 +740,6 @@ struct ParallelAnalysisResultsView: View {
  	}
 
     private func toggleSection(_ section: AnalysisSection) {
-        guard isContentReady(for: section) else { return }
         if expandedSections.contains(section) {
             expandedSections.remove(section)
         } else {
@@ -797,84 +750,57 @@ struct ParallelAnalysisResultsView: View {
 
 // MARK: - Tray Card Component
 
-struct AnalysisTrayCard<Content: View, Placeholder: View>: View {
-	let section: ParallelAnalysisResultsView.AnalysisSection
-	let isExpanded: Bool
-    let isContentReady: Bool
-	let onToggle: () -> Void
+struct AnalysisTrayCard<Content: View>: View {
+    let section: ParallelAnalysisResultsView.AnalysisSection
+    let isExpanded: Bool
+    let onToggle: () -> Void
     private let contentBuilder: () -> Content
-    private let placeholderBuilder: () -> Placeholder
 
     init(
         section: ParallelAnalysisResultsView.AnalysisSection,
         isExpanded: Bool,
-        isContentReady: Bool,
         onToggle: @escaping () -> Void,
-        @ViewBuilder content: @escaping () -> Content,
-        @ViewBuilder placeholder: @escaping () -> Placeholder
+        @ViewBuilder content: @escaping () -> Content
     ) {
         self.section = section
         self.isExpanded = isExpanded
-        self.isContentReady = isContentReady
         self.onToggle = onToggle
         self.contentBuilder = content
-        self.placeholderBuilder = placeholder
     }
-	
-	var body: some View {
-		VStack(spacing: 0) {
+
+    var body: some View {
+        VStack(spacing: 0) {
             header
 
-            Group {
-                if isContentReady {
-                    if isExpanded {
-                        contentBuilder()
-                            .padding(.horizontal)
-                            .padding(.bottom)
-                            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
-                    }
-                } else {
-                    placeholderBuilder()
-                        .padding(.horizontal)
-                        .padding(.bottom)
-                        .transition(.opacity)
-                }
+            if isExpanded {
+                contentBuilder()
+                    .padding(.horizontal)
+                    .padding(.bottom)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
             }
         }
         .background(backgroundColorForSection(section))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .animation(.easeInOut(duration: 0.3), value: isExpanded)
-        .animation(.easeInOut(duration: 0.3), value: isContentReady)
     }
 
     private var header: some View {
-			HStack {
-				Image(systemName: iconForSection(section))
-					.foregroundColor(colorForSection(section))
-				Text(section.rawValue)
-					.font(DS.Typography.bodyFont())
-					.fontWeight(.medium)
-					.foregroundColor(.primary)
-				Spacer()
-            if !isContentReady {
-					ProgressView()
-						.progressViewStyle(CircularProgressViewStyle())
-						.scaleEffect(0.7)
-						.padding(.trailing, 4)
-				}
-				Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-					.font(.caption)
-					.foregroundColor(.secondary)
-                .opacity(isContentReady ? 1 : 0)
-			}
-			.padding()
-			.contentShape(Rectangle())
-        .onTapGesture {
-            guard isContentReady else { return }
-            onToggle()
+        HStack {
+            Image(systemName: iconForSection(section))
+                .foregroundColor(colorForSection(section))
+            Text(section.rawValue)
+                .font(DS.Typography.bodyFont())
+                .fontWeight(.medium)
+                .foregroundColor(.primary)
+            Spacer()
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .opacity(isContentReady ? 1 : 0.9)
-	}
+        .padding()
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggle)
+    }
 	
 	private func iconForSection(_ section: ParallelAnalysisResultsView.AnalysisSection) -> String {
 		switch section {
