@@ -22,7 +22,7 @@ struct ShareEditorView: View {
 				let previewHeight = max(0, min(desiredHeight, maxPreviewHeight))
 				VStack(spacing: 0) {
 					previewSection(aspectRatio: selectedAspect)
-						.frame(height: previewHeight)
+						.frame(height: previewHeight, alignment: .top)
 						.padding(.bottom, DS.Spacing.s)
 					Divider()
 					captionEditor
@@ -30,9 +30,10 @@ struct ShareEditorView: View {
 					Divider()
 					shareSection
 				}
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
+				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 				.background(DS.Color.background)
 			}
+			.navigationBarTitleDisplayMode(.inline)
 			.toolbar {
 				ToolbarItem(placement: .topBarLeading) {
 					Button("Close") { dismiss() }
@@ -60,24 +61,29 @@ struct ShareEditorView: View {
 	}
 
 	private func previewSection(aspectRatio: ShareAspectRatio) -> some View {
-		ZStack {
+		Group {
 			if let image = viewModel.previewImage {
 				Image(uiImage: image)
 					.resizable()
-					.scaledToFit()
-					.cornerRadius(aspectRatio.layout.imageCornerRadius)
+					.aspectRatio(aspectRatio.aspect, contentMode: .fit)
 					.shadow(color: Color.black.opacity(0.1), radius: 16, x: 0, y: 8)
-			} else if viewModel.isLoading {
-				ProgressView()
-					.progressViewStyle(.circular)
 			} else {
-				Text("Preparing preview…")
-					.font(DS.Typography.bodyFont())
-					.foregroundColor(.secondary)
+				// Maintain consistent aspect ratio for loading/placeholder states
+				Color.clear
+					.aspectRatio(aspectRatio.aspect, contentMode: .fit)
+					.overlay {
+						if viewModel.isLoading {
+							ProgressView()
+								.progressViewStyle(.circular)
+						} else {
+							Text("Preparing preview…")
+								.font(DS.Typography.bodyFont())
+								.foregroundColor(.secondary)
+						}
+					}
 			}
 		}
-		.frame(maxWidth: .infinity, maxHeight: .infinity)
-		.aspectRatio(aspectRatio.aspect, contentMode: .fit)
+		.frame(maxWidth: .infinity)
 	}
 
 	private var captionEditor: some View {
