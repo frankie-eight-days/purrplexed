@@ -83,7 +83,6 @@ struct ShareEditorView: View {
 	private var captionEditor: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: DS.Spacing.m) {
-				captionField
 				if !viewModel.bodyLanguageChips.isEmpty {
 					chipSection(title: "Body Language", chips: viewModel.bodyLanguageChips, category: .bodyLanguage)
 				}
@@ -103,26 +102,6 @@ struct ShareEditorView: View {
 		.frame(maxWidth: .infinity)
 	}
 
-	private var captionField: some View {
-		VStack(alignment: .leading, spacing: 8) {
-			Text("Caption")
-				.font(.caption)
-				.foregroundColor(.secondary)
-			TextEditor(text: Binding(
-				get: { viewModel.caption },
-				set: { viewModel.updateCaption($0) }
-			))
-				.font(DS.Typography.bodyFont())
-				.frame(minHeight: 80, maxHeight: 120)
-				.overlay(
-					RoundedRectangle(cornerRadius: 12)
-						.stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-				)
-			Text("\(viewModel.caption.count)/150 characters")
-				.font(.caption)
-				.foregroundColor(.secondary)
-		}
-	}
 
 	private func chipSection(title: String, chips: [String], category: ShareEditorViewModel.CaptionCategory) -> some View {
 		VStack(alignment: .leading, spacing: 8) {
