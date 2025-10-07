@@ -34,6 +34,7 @@ struct PaywallView: View {
 	@State private var hasRemainingFreeAnalyses = true
 	@State private var dailyFreeLimit = 3
 	@State private var maxPricingCardHeight: CGFloat = 0
+	@State private var isPremium = false
 
 	private let subscriptionOptions: [SubscriptionOption] = [
 		SubscriptionOption(
@@ -197,9 +198,35 @@ struct PaywallView: View {
 			.foregroundStyle(.secondary)
 			.disabled(isPurchasing)
 			
-			Text("Cancel anytime • 7-day free trial")
-				.font(.caption)
+			if isPremium {
+				Button("Manage Subscription") {
+					if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+						UIApplication.shared.open(url)
+					}
+				}
 				.foregroundStyle(.secondary)
+			}
+			
+			// Legal footer
+			VStack(spacing: DS.Spacing.s) {
+				Text("Subscriptions will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. Manage subscriptions in Settings.")
+					.font(.caption2)
+					.foregroundStyle(.secondary)
+					.multilineTextAlignment(.center)
+				
+				HStack(spacing: DS.Spacing.s) {
+					Link("Privacy Policy", destination: URL(string: "https://purrplexed.app/privacy.html")!)
+						.font(.caption2)
+					
+					Text("•")
+						.font(.caption2)
+						.foregroundStyle(.secondary)
+					
+					Link("Terms of Use", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+						.font(.caption2)
+				}
+			}
+			.padding(.top, DS.Spacing.s)
 		}
 	}
 
@@ -313,10 +340,11 @@ struct PaywallView: View {
 		async let remaining = usageMeter.remainingFreeCount()
 		async let totalLimit = usageMeter.totalDailyLimit()
 		async let premium = subscription.isPremium
-		let (remainingCount, limit, isPremium) = await (remaining, totalLimit, premium)
+		let (remainingCount, limit, premiumStatus) = await (remaining, totalLimit, premium)
 		await MainActor.run {
-			hasRemainingFreeAnalyses = remainingCount > 0 || isPremium
+			hasRemainingFreeAnalyses = remainingCount > 0 || premiumStatus
 			dailyFreeLimit = limit
+			isPremium = premiumStatus
 		}
 	}
 }

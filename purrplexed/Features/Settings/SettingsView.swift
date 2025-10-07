@@ -27,13 +27,16 @@ struct SettingsView: View {
 				}
 			}
 			.navigationTitle("Settings")
+			#if DEBUG
 			.sheet(isPresented: $viewModel.showDebugMenu) {
 				DebugMenuView(viewModel: viewModel)
 			}
+			#endif
 		}
 	}
 }
 
+#if DEBUG
 struct DebugMenuView: View {
 	@ObservedObject var viewModel: SettingsViewModel
 	@Environment(\.presentationMode) var presentationMode
@@ -59,6 +62,12 @@ struct DebugMenuView: View {
 						presentationMode.wrappedValue.dismiss()
 					}
 					.foregroundStyle(.red)
+					
+					Button("💳 Show Paywall") {
+						presentationMode.wrappedValue.dismiss()
+						viewModel.showPaywallFromDebug()
+					}
+					.foregroundStyle(.orange)
 				}
 				
 				Section("Info") {
@@ -79,6 +88,7 @@ struct DebugMenuView: View {
 		}
 	}
 }
+#endif
 
 #Preview {
 	let env = Env.load()

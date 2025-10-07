@@ -11,20 +11,24 @@ import SwiftUI
 @MainActor
 final class SettingsViewModel: ObservableObject {
 	@Published var appVersion: String
-	@Published var showDebugMenu = false
 	
-	private let services: ServiceContainer
+	#if DEBUG
+	@Published var showDebugMenu = false
 	private var versionTapCount = 0
 	private var lastTapTime = Date()
+	#endif
+	
+	private let services: ServiceContainer
 
 	init(services: ServiceContainer) {
 		self.services = services
 		self.appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
 	}
 	
-	// MARK: - Debug Methods
+	// MARK: - Debug Methods (Only Available in DEBUG Builds)
 	
 	func handleVersionTap() {
+		#if DEBUG
 		let now = Date()
 		
 		// Reset tap count if more than 2 seconds since last tap
@@ -43,8 +47,10 @@ final class SettingsViewModel: ObservableObject {
 			versionTapCount = 0
 			print("🔧 Debug menu activated!")
 		}
+		#endif
 	}
 	
+	#if DEBUG
 	func resetUsage() {
 		Task {
 			// Delete keychain entries to reset usage
@@ -90,6 +96,23 @@ final class SettingsViewModel: ObservableObject {
 			}
 		}
 	}
+	
+	func showPaywall() {
+		services.router.present(.paywall)
+		print("🔧 Showing paywall")
+	}
+	
+	func showPaywallFromDebug() {
+		// Close debug menu and settings, then show paywall
+		// First dismiss everything
+		services.router.dismiss()
+		// Then after a delay, show the paywall
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+			self.services.router.present(.paywall)
+			print("🔧 Showing paywall from debug")
+		}
+	}
+	#endif
 }
 
 extension Notification.Name {
