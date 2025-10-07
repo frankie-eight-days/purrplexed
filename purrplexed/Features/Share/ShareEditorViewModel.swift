@@ -218,16 +218,34 @@ final class ShareEditorViewModel: ObservableObject {
 
 	private func loadChips() {
 		if let body = context.bodyLanguageAnalysis {
+			Log.share.debug("Body Language captionSuggestions count: \(body.captionSuggestions.count)")
+			Log.share.debug("Body Language captionSuggestions: \(body.captionSuggestions)")
 			bodyLanguageChips = ShareEditorViewModel.extractBodyLanguageChips(from: body)
+			Log.share.debug("Extracted bodyLanguageChips: \(self.bodyLanguageChips)")
 		}
 		if let contextual = context.contextualEmotion {
+			Log.share.debug("Contextual captionSuggestions count: \(contextual.captionSuggestions.count)")
+			Log.share.debug("Contextual captionSuggestions: \(contextual.captionSuggestions)")
 			contextualChips = ShareEditorViewModel.extractContextualEmotionChips(from: contextual)
+			Log.share.debug("Extracted contextualChips: \(self.contextualChips)")
 		}
 		if let advice = context.ownerAdvice {
+			Log.share.debug("Owner Advice captionSuggestions count: \(advice.captionSuggestions.count)")
+			Log.share.debug("Owner Advice captionSuggestions: \(advice.captionSuggestions)")
 			adviceChips = ShareEditorViewModel.extractOwnerAdviceChips(from: advice)
+			Log.share.debug("Extracted adviceChips: \(self.adviceChips)")
 		}
-		if let jokes = context.catJokes?.jokes {
-			jokeChips = jokes.filter { !$0.isEmpty }
+		if let jokes = context.catJokes {
+			Log.share.debug("Cat Jokes captionSuggestions count: \(jokes.captionSuggestions.count)")
+			Log.share.debug("Cat Jokes captionSuggestions: \(jokes.captionSuggestions)")
+			// Use captionSuggestions if available, otherwise fall back to jokes array
+			if !jokes.captionSuggestions.isEmpty {
+				jokeChips = jokes.captionSuggestions
+			} else {
+				// Fallback for backward compatibility before backend deployment
+				jokeChips = jokes.jokes.filter { !$0.isEmpty }
+			}
+			Log.share.debug("Extracted jokeChips: \(self.jokeChips)")
 		}
 	}
 
@@ -239,7 +257,12 @@ final class ShareEditorViewModel: ObservableObject {
 	}
 
 	static func extractBodyLanguageChips(from analysis: BodyLanguageAnalysis) -> [String] {
-		[
+		// Use captionSuggestions if available, otherwise fall back to extracting from analysis fields
+		if !analysis.captionSuggestions.isEmpty {
+			return analysis.captionSuggestions
+		}
+		// Fallback for backward compatibility before backend deployment
+		return [
 			"Ears: \(analysis.ears)",
 			"Tail: \(analysis.tail)",
 			analysis.overallMood.isEmpty ? nil : analysis.overallMood.capitalized,
@@ -249,6 +272,11 @@ final class ShareEditorViewModel: ObservableObject {
 	}
 
 	static func extractContextualEmotionChips(from analysis: ContextualEmotion) -> [String] {
+		// Use captionSuggestions if available, otherwise fall back to extracting from analysis fields
+		if !analysis.captionSuggestions.isEmpty {
+			return analysis.captionSuggestions
+		}
+		// Fallback for backward compatibility before backend deployment
 		let combined = (analysis.emotionalMeaning + analysis.contextClues)
 			.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 			.filter { !$0.isEmpty }
@@ -256,6 +284,11 @@ final class ShareEditorViewModel: ObservableObject {
 	}
 
 	static func extractOwnerAdviceChips(from advice: OwnerAdvice) -> [String] {
+		// Use captionSuggestions if available, otherwise fall back to extracting from analysis fields
+		if !advice.captionSuggestions.isEmpty {
+			return advice.captionSuggestions
+		}
+		// Fallback for backward compatibility before backend deployment
 		let combined = (advice.immediateActions + advice.longTermSuggestions)
 			.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
 			.filter { !$0.isEmpty }

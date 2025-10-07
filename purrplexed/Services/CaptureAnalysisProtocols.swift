@@ -105,6 +105,7 @@ struct BodyLanguageAnalysis: Sendable, Equatable, Codable {
 	let eyes: String
 	let whiskers: String
 	let overallMood: String
+	let captionSuggestions: [String]
 
 	private enum CodingKeys: String, CodingKey {
 		case posture
@@ -113,16 +114,18 @@ struct BodyLanguageAnalysis: Sendable, Equatable, Codable {
 		case eyes
 		case whiskers
 		case overallMood
+		case captionSuggestions
 		case legacyOverallMood = "overall_mood"
 	}
 
-	init(posture: String, ears: String, tail: String, eyes: String, whiskers: String, overallMood: String) {
+	init(posture: String, ears: String, tail: String, eyes: String, whiskers: String, overallMood: String, captionSuggestions: [String] = []) {
 		self.posture = posture
 		self.ears = ears
 		self.tail = tail
 		self.eyes = eyes
 		self.whiskers = whiskers
 		self.overallMood = overallMood
+		self.captionSuggestions = captionSuggestions
 	}
 
 	init(from decoder: Decoder) throws {
@@ -137,6 +140,7 @@ struct BodyLanguageAnalysis: Sendable, Equatable, Codable {
 		} else {
 			overallMood = try container.decode(String.self, forKey: .legacyOverallMood)
 		}
+		captionSuggestions = (try? container.decode([String].self, forKey: .captionSuggestions)) ?? []
 	}
 
 	func encode(to encoder: Encoder) throws {
@@ -147,6 +151,7 @@ struct BodyLanguageAnalysis: Sendable, Equatable, Codable {
 		try container.encode(eyes, forKey: .eyes)
 		try container.encode(whiskers, forKey: .whiskers)
 		try container.encode(overallMood, forKey: .overallMood)
+		try container.encode(captionSuggestions, forKey: .captionSuggestions)
 	}
 }
 
@@ -154,20 +159,23 @@ struct ContextualEmotion: Sendable, Equatable, Codable {
 	let contextClues: [String]
 	let environmentalFactors: [String]
 	let emotionalMeaning: [String]
+	let captionSuggestions: [String]
 
 	private enum CodingKeys: String, CodingKey {
 		case contextClues
 		case environmentalFactors
 		case emotionalMeaning
+		case captionSuggestions
 		case legacyContextClues = "context_clues"
 		case legacyEnvironmentalFactors = "environmental_factors"
 		case legacyEmotionalMeaning = "emotional_meaning"
 	}
 
-	init(contextClues: [String], environmentalFactors: [String], emotionalMeaning: [String]) {
+	init(contextClues: [String], environmentalFactors: [String], emotionalMeaning: [String], captionSuggestions: [String] = []) {
 		self.contextClues = contextClues
 		self.environmentalFactors = environmentalFactors
 		self.emotionalMeaning = emotionalMeaning
+		self.captionSuggestions = captionSuggestions
 	}
 
 	init(from decoder: Decoder) throws {
@@ -175,6 +183,7 @@ struct ContextualEmotion: Sendable, Equatable, Codable {
 		contextClues = ContextualEmotion.decodeStrings(container: container, primary: .contextClues, legacy: .legacyContextClues)
 		environmentalFactors = ContextualEmotion.decodeStrings(container: container, primary: .environmentalFactors, legacy: .legacyEnvironmentalFactors)
 		emotionalMeaning = ContextualEmotion.decodeStrings(container: container, primary: .emotionalMeaning, legacy: .legacyEmotionalMeaning)
+		captionSuggestions = (try? container.decode([String].self, forKey: .captionSuggestions)) ?? []
 	}
 
 	func encode(to encoder: Encoder) throws {
@@ -182,6 +191,7 @@ struct ContextualEmotion: Sendable, Equatable, Codable {
 		try container.encode(contextClues, forKey: .contextClues)
 		try container.encode(environmentalFactors, forKey: .environmentalFactors)
 		try container.encode(emotionalMeaning, forKey: .emotionalMeaning)
+		try container.encode(captionSuggestions, forKey: .captionSuggestions)
 	}
 
 	private static func decodeStrings(container: KeyedDecodingContainer<CodingKeys>, primary: CodingKeys, legacy: CodingKeys) -> [String] {
@@ -205,11 +215,13 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 	let immediateActions: [String]
 	let longTermSuggestions: [String]
 	let warningSigns: [String]
+	let captionSuggestions: [String]
 
 	private enum CodingKeys: String, CodingKey {
 		case immediateActions
 		case longTermSuggestions
 		case warningSigns
+		case captionSuggestions
 		case legacyImmediateActions = "immediate_actions"
 		case legacyLongTermSuggestions = "long_term_suggestions"
 		case legacyWarningSigns = "warning_signs"
@@ -231,10 +243,11 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 	}
 
 	// Memberwise initializer for mocks and direct construction
-	init(immediateActions: [String], longTermSuggestions: [String], warningSigns: [String]) {
+	init(immediateActions: [String], longTermSuggestions: [String], warningSigns: [String], captionSuggestions: [String] = []) {
 		self.immediateActions = immediateActions
 		self.longTermSuggestions = longTermSuggestions
 		self.warningSigns = warningSigns
+		self.captionSuggestions = captionSuggestions
 	}
 
 	// Legacy initializer for backward compatibility with string inputs
@@ -242,6 +255,7 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 		self.immediateActions = [immediateActions]
 		self.longTermSuggestions = [longTermSuggestions]
 		self.warningSigns = [warningSigns]
+		self.captionSuggestions = []
 	}
 
 	init(from decoder: Decoder) throws {
@@ -282,6 +296,8 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 		} else {
 			self.warningSigns = []
 		}
+
+		captionSuggestions = (try? container.decode([String].self, forKey: .captionSuggestions)) ?? []
 	}
 
 	func encode(to encoder: Encoder) throws {
@@ -289,11 +305,35 @@ struct OwnerAdvice: Sendable, Equatable, Codable {
 		try container.encode(immediateActions, forKey: .immediateActions)
 		try container.encode(longTermSuggestions, forKey: .longTermSuggestions)
 		try container.encode(warningSigns, forKey: .warningSigns)
+		try container.encode(captionSuggestions, forKey: .captionSuggestions)
 	}
 }
 
 struct CatJokes: Sendable, Equatable, Codable {
 	let jokes: [String]
+	let captionSuggestions: [String]
+
+	init(jokes: [String], captionSuggestions: [String] = []) {
+		self.jokes = jokes
+		self.captionSuggestions = captionSuggestions
+	}
+
+	init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		jokes = (try? container.decode([String].self, forKey: .jokes)) ?? []
+		captionSuggestions = (try? container.decode([String].self, forKey: .captionSuggestions)) ?? []
+	}
+
+	func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+		try container.encode(jokes, forKey: .jokes)
+		try container.encode(captionSuggestions, forKey: .captionSuggestions)
+	}
+
+	private enum CodingKeys: String, CodingKey {
+		case jokes
+		case captionSuggestions
+	}
 }
 
 enum AnalysisStatus: Sendable, Equatable {

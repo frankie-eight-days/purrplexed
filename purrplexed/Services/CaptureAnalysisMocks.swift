@@ -62,14 +62,15 @@ final class MockParallelAnalysisService: ParallelAnalysisService {
 				continuation.yield(.emotionSummaryCompleted(summary))
 				
 				try? await Task.sleep(nanoseconds: 200_000_000)
-				let body = BodyLanguageAnalysis(posture: "Loafed with shoulders relaxed", ears: "Pointed forward", tail: "Resting along the body", eyes: "Soft and half-open", whiskers: "Neutral angle", overallMood: "relaxed")
+				let body = BodyLanguageAnalysis(posture: "Loafed with shoulders relaxed", ears: "Pointed forward", tail: "Resting along the body", eyes: "Soft and half-open", whiskers: "Neutral angle", overallMood: "relaxed", captionSuggestions: ["Loafed and loving it", "Peak relaxation mode", "Living the sunbeam dream"])
 				continuation.yield(.bodyLanguageCompleted(body))
 				
 				try? await Task.sleep(nanoseconds: 150_000_000)
 				let context = ContextualEmotion(
 					contextClues: ["Soft lighting", "Comfortable furniture", "Quiet environment"],
 					environmentalFactors: ["Indoor safe space", "No visible threats"],
-					emotionalMeaning: ["Feeling secure and at home"]
+					emotionalMeaning: ["Feeling secure and at home"],
+					captionSuggestions: ["Cozy vibes only", "Safe space secured", "Home sweet home"]
 				)
 				continuation.yield(.contextualEmotionCompleted(context))
 				
@@ -77,7 +78,8 @@ final class MockParallelAnalysisService: ParallelAnalysisService {
 				let advice = OwnerAdvice(
 					immediateActions: ["Continue providing a calm environment", "Keep regular feeding schedule"],
 					longTermSuggestions: ["Maintain regular routine"],
-					warningSigns: []
+					warningSigns: [],
+					captionSuggestions: ["Keep the calm vibes coming", "Routine is key for this kitty", "Happy cat, happy life"]
 				)
 				continuation.yield(.ownerAdviceCompleted(advice))
 				
@@ -85,8 +87,12 @@ final class MockParallelAnalysisService: ParallelAnalysisService {
 					try? await Task.sleep(nanoseconds: 120_000_000)
 					let jokes = CatJokes(jokes: [
 						"This patch of sunlight is under new management.",
-						"I’ll chase the toy after this very serious lounge session.",
+						"I'll chase the toy after this very serious lounge session.",
 						"Please log all petting requests in triplicate."
+					], captionSuggestions: [
+						"Sunlight manager on duty",
+						"Lounge mode activated",
+						"Professional napper at work"
 					])
 					continuation.yield(.catJokesCompleted(jokes))
 				}
