@@ -89,6 +89,9 @@ struct ShareEditorView: View {
 	private var captionEditor: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: DS.Spacing.m) {
+				if !viewModel.jokeChips.isEmpty {
+					chipSection(title: "Cat Jokes", chips: viewModel.jokeChips, category: .jokes)
+				}
 				if !viewModel.bodyLanguageChips.isEmpty {
 					chipSection(title: "Body Language", chips: viewModel.bodyLanguageChips, category: .bodyLanguage)
 				}
@@ -97,9 +100,6 @@ struct ShareEditorView: View {
 				}
 				if !viewModel.adviceChips.isEmpty {
 					chipSection(title: "Owner Advice", chips: viewModel.adviceChips, category: .advice)
-				}
-				if !viewModel.jokeChips.isEmpty {
-					chipSection(title: "Cat Jokes", chips: viewModel.jokeChips, category: .jokes)
 				}
 				chipSection(title: "Emoji", chips: viewModel.emojiChips, category: .emoji)
 			}

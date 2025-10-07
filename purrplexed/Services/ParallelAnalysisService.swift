@@ -314,19 +314,20 @@ final class HTTPParallelAnalysisService: ParallelAnalysisService {
 				}
 			}
 			
-			// Cat Jokes Analysis (optional)
-			group.addTask {
-				do {
-					let result = try await catJokesTask.value
-					if let jokes = result {
-						continuation.yield(.catJokesCompleted(jokes))
-					}
-					return nil
-				} catch {
-					Log.network.warning("Cat jokes analysis failed (optional): \(error.localizedDescription)")
-					return nil // Don't report cat jokes errors as they're optional
+		// Cat Jokes Analysis
+		group.addTask {
+			do {
+				let result = try await catJokesTask.value
+				if let jokes = result {
+					continuation.yield(.catJokesCompleted(jokes))
 				}
+				return nil
+			} catch {
+				let errorMessage = "Cat jokes analysis failed: \(error.localizedDescription)"
+				Log.network.error("Cat jokes analysis failed: \(error.localizedDescription, privacy: .public)")
+				return errorMessage
 			}
+		}
 			
 			// Collect errors from completed tasks
 			for await errorMessage in group {

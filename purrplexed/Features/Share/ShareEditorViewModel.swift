@@ -236,15 +236,10 @@ final class ShareEditorViewModel: ObservableObject {
 			Log.share.debug("Extracted adviceChips: \(self.adviceChips)")
 		}
 		if let jokes = context.catJokes {
-			Log.share.debug("Cat Jokes captionSuggestions count: \(jokes.captionSuggestions.count)")
-			Log.share.debug("Cat Jokes captionSuggestions: \(jokes.captionSuggestions)")
-			// Use captionSuggestions if available, otherwise fall back to jokes array
-			if !jokes.captionSuggestions.isEmpty {
-				jokeChips = jokes.captionSuggestions
-			} else {
-				// Fallback for backward compatibility before backend deployment
-				jokeChips = jokes.jokes.filter { !$0.isEmpty }
-			}
+			Log.share.debug("Cat Jokes jokes count: \(jokes.jokes.count)")
+			Log.share.debug("Cat Jokes jokes: \(jokes.jokes)")
+			// Use the actual jokes from the analysis
+			jokeChips = jokes.jokes.filter { !$0.isEmpty }
 			Log.share.debug("Extracted jokeChips: \(self.jokeChips)")
 		}
 	}
